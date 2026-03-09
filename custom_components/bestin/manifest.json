@@ -2,12 +2,12 @@
   "domain": "bestin",
   "name": "BESTIN",
   "codeowners": [
-    "@lunDreame"
+    "@dlxmax"
   ],
   "config_flow": true,
-  "documentation": "https://github.com/lunDreame/ha-bestin",
+  "documentation": "https://github.com/dlxmax/ha-bestin-fork",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/lunDreame/ha-bestin/issues",
+  "issue_tracker": "https://github.com/dlxmax/ha-bestin-fork/issues",
   "requirements": [
     "pyserial-asyncio-fast",
     "aiofiles",
