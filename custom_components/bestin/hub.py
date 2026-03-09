@@ -2,7 +2,7 @@
 import re
 import time
 import asyncio
-import serial_asyncio
+import serial_asyncio_fast as serial_asyncio
 import socket
 
 from typing import cast
@@ -98,6 +98,7 @@ class ConnectionManager:
         if self.writer is not None:
             self.writer.close()
             await self.writer.wait_closed()
+            self.writer = None
 
         current_time = time.time()
         if self.next_attempt_time and current_time < self.next_attempt_time:
