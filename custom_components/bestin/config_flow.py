@@ -8,9 +8,9 @@ import voluptuous as vol
 
 from homeassistant.core import callback
 from homeassistant.config_entries import (
-    ConfigFlow, 
+    ConfigFlow,
     ConfigEntry,
-    FlowResult,
+    ConfigFlowResult,
     OptionsFlow,
     SOURCE_IMPORT,
 )
@@ -63,14 +63,14 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, 
         user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle a flow initialized by the user."""
         return self.async_show_menu(step_id="user", menu_options=["local", "center"])
 
     async def async_step_local(
         self, 
         user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle local communication setup."""
         errors = {}
 
@@ -160,7 +160,7 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_center(
         self, 
         user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle user selection for center version."""
         errors = {}
 
@@ -186,7 +186,7 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_center_v1(
         self, 
         user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the center version 1."""
         errors = {}
         description_placeholders = None  
@@ -221,7 +221,7 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_center_v2(
         self,
         user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the center version 2."""
         errors = {}
         description_placeholders = None  
@@ -284,7 +284,7 @@ class OptionsFlowHandler(OptionsFlow):
     async def async_step_init(
         self,
         user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle options flow."""
         errors = {}
 
