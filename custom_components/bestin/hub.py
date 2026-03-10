@@ -97,7 +97,10 @@ class ConnectionManager:
         """Attempt to reconnect with exponential backoff."""
         if self.writer is not None:
             self.writer.close()
-            await self.writer.wait_closed()
+            try:
+                await self.writer.wait_closed()
+            except Exception:
+                pass
             self.writer = None
 
         current_time = time.time()
