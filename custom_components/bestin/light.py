@@ -8,8 +8,6 @@ from homeassistant.components.light import (
     ColorMode,
     DOMAIN as LIGHT_DOMAIN,
     LightEntity,
-    COLOR_MODE_BRIGHTNESS,
-    COLOR_MODE_COLOR_TEMP,
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP_KELVIN,
 )
@@ -96,8 +94,8 @@ class BestinLight(BestinDevice, LightEntity):
     
     def state_parse(self, state: dict) -> bool:
         """State parse for smartlight."""
-        brightness = state[COLOR_MODE_BRIGHTNESS]
-        color_temp = state[COLOR_MODE_COLOR_TEMP]
+        brightness = state[ColorMode.BRIGHTNESS]
+        color_temp = state[ColorMode.COLOR_TEMP]
 
         if brightness:
             self._color_mode = ColorMode.BRIGHTNESS
@@ -160,13 +158,13 @@ class BestinLight(BestinDevice, LightEntity):
     @property
     def brightness(self) -> Optional[int]:
         """Return the current brightness."""
-        brightness_value = self._device_info.state[COLOR_MODE_BRIGHTNESS]
+        brightness_value = self._device_info.state[ColorMode.BRIGHTNESS]
         return self.convert_brightness(brightness_value)
     
     @property
     def color_temp_kelvin(self) -> Optional[int]:
         """The current color temperature in Kelvin."""
-        color_temp_value = self._device_info.state[COLOR_MODE_COLOR_TEMP]
+        color_temp_value = self._device_info.state[ColorMode.COLOR_TEMP]
         return self.convert_color_temp(color_temp_value)
 
     @property
@@ -187,10 +185,10 @@ class BestinLight(BestinDevice, LightEntity):
         command_kwargs = {}
         if brightness:
             brightness = self.convert_brightness(brightness, reverse=True)
-            command_kwargs[COLOR_MODE_BRIGHTNESS] = brightness
+            command_kwargs[ColorMode.BRIGHTNESS] = brightness
         if color_temp:
             color_temp = self.convert_color_temp(color_temp, reverse=True)
-            command_kwargs[COLOR_MODE_COLOR_TEMP] = color_temp
+            command_kwargs[ColorMode.COLOR_TEMP] = color_temp
 
         if self._version_exists:
             light_command = self.set_light_command(STATE_ON, brightness, color_temp)
