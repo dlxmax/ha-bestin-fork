@@ -176,7 +176,7 @@ class ConnectionManager:
                     return b''
 
                 if (
-                    (packet[1] == 0x31 and packet[2] in [0x00, 0x02, 0x80, 0x82])
+                    (packet[1] == 0x31 and packet[2] in [0x00, 0x01, 0x02, 0x80, 0x81, 0x82])
                     or packet[1] == 0x61
                     or packet[1] == 0x17  # For AIO
                 ):

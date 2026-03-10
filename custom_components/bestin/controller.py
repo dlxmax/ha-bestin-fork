@@ -626,9 +626,10 @@ class BestinController:
 
         if packet_len != 10 and command in [0x81, 0x82, 0x91, 0x92, 0xB2]:
             if header == 0x28:
-                room_id, device_state = self.parse_thermostat(packet)
-                device_id = f"thermostat_{room_id}"
-                self.set_device(device_id, device_state)
+                if packet[2] == 0x10:
+                    room_id, device_state = self.parse_thermostat(packet)
+                    device_id = f"thermostat_{room_id}"
+                    self.set_device(device_id, device_state)
             elif (
                 (self.gateway_type == "General" and packet_len == 30) or
                 (self.gateway_type == "AIO" and packet_len in [20, 22]) or
