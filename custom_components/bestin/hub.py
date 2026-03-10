@@ -303,7 +303,9 @@ class BestinHub:
         gen2_data: dict = {}
         try:
             while len(b''.join(chunk_storage)) < 1024:
-                received_data = await self.connection._receive_socket()
+                received_data = await asyncio.wait_for(
+                    self.connection._receive_socket(), timeout=10.0
+                )
                 if not received_data:
                     break
                 chunk_storage.append(received_data)
@@ -333,6 +335,11 @@ class BestinHub:
             else:
                 self.gateway_mode = ("General", None)
                 LOGGER.debug("General mode set")
+        except TimeoutError:
+            LOGGER.warning(
+                "Timed out waiting for gateway data, defaulting to General mode"
+            )
+            self.gateway_mode = ("General", None)
         except Exception as e:
             problematic_packet = locals().get("received_data", None)
             raise RuntimeError(
