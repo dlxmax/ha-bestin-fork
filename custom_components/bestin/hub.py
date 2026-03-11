@@ -207,7 +207,10 @@ class ConnectionManager:
         if self.writer:
             LOGGER.info("Connection closed.")
             self.writer.close()
-            await self.writer.wait_closed()
+            try:
+                await self.writer.wait_closed()
+            except Exception:
+                pass
             self.writer = None
 
 
