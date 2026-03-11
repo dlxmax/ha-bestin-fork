@@ -223,7 +223,11 @@ class BestinHub:
         self.entry = entry
         self.api: BestinCenterAPI | BestinController = None
         self.connection: ConnectionManager = None
-        self.gateway_mode: tuple[str, dict[bytes] | None] = None
+        saved_mode = entry.data.get("gateway_mode")
+        if saved_mode and isinstance(saved_mode, (list, tuple)) and len(saved_mode) == 2:
+            self.gateway_mode = tuple(saved_mode)
+        else:
+            self.gateway_mode = None
         self.entity_groups: dict[str, set[str]] = {}
         self.entity_to_id: dict[str, str] = {}
 
@@ -422,10 +426,12 @@ class BestinHub:
             if self.gateway_mode is None:
                 await self.determine_gateway_mode()
 
-            self.hass.config_entries.async_update_entry(
-                entry=self.entry,
-                data={**self.entry.data, "gateway_mode": self.gateway_mode},
-            )
+            stored_mode = self.entry.data.get("gateway_mode")
+            if stored_mode is None or tuple(stored_mode) != self.gateway_mode:
+                self.hass.config_entries.async_update_entry(
+                    entry=self.entry,
+                    data={**self.entry.data, "gateway_mode": list(self.gateway_mode)},
+                )
             self.api = BestinController(
                 self.hass,
                 self.entry,
