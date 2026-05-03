@@ -431,7 +431,11 @@ class BestinCenterAPI(CenterAPIv2):
     def get_devices_from_domain(self, domain: str) -> list:
         """Get devices for a specific domain."""
         entity_list = self.entity_groups.get(domain, set())
-        return [self.devices.get(uid, {}) for uid in entity_list]
+        return [
+            self.devices[uid]
+            for uid in entity_list
+            if uid in self.devices
+        ]
 
     def initial_device(self, device_id: str, sub_id: str | None, state: Any) -> dict:
         """Initialize a device with given parameters."""

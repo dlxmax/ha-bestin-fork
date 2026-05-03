@@ -150,8 +150,12 @@ class BestinController:
 
     def get_devices_from_domain(self, domain: str) -> list:
         """Get devices from a specific domain"""
-        entity_list = self.entity_groups.get(domain, [])
-        return [self.devices.get(uid, {}) for uid in entity_list]
+        entity_list = self.entity_groups.get(domain, set())
+        return [
+            self.devices[uid]
+            for uid in entity_list
+            if uid in self.devices
+        ]
 
     def make_light_packet(
         self, timestamp: int, room_id: int, pos_id: int, sub_type: str, value: bool | int
