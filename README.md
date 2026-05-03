@@ -27,8 +27,8 @@
 
 ## 유지보수 현황 / Maintenance status
 
-원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 의 작업이 v1.1.9 이후로 중단되어, 본 포크 [`dlxmax/ha-bestin-fork`](https://github.com/dlxmax/ha-bestin-fork) 가 유지보수를 이어 받았습니다. 본 포크의 직전 릴리스 v1.2.0 은 lunDreame v1.1.9 에서 발견된 버그를 정리한 버전입니다 (Python 3.14 호환, 게이트웨이 모드 감지 타임아웃, 무한 리로드 루프, 0x31 패킷 변형, 온도조절기 파싱 가드 등). 본 v1.3.0 (베타) 에서는 신규 'iPark 스마트홈 앱' 옵션이 추가되었습니다.  
-*Upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) development stopped after v1.1.9. This fork [`dlxmax/ha-bestin-fork`](https://github.com/dlxmax/ha-bestin-fork) has taken over maintenance. Our previous release **v1.2.0** carried bug fixes against lunDreame's v1.1.9 (Python 3.14 compatibility, gateway-mode detection timeout, infinite reload loop, 0x31 packet variants, thermostat parsing guard, etc.). The new **v1.3.0 (beta)** adds the "iPark Smarthome App" option.*
+원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 의 작업이 v1.1.9 이후로 중단되어, 본 포크 [`dlxmax/ha-bestin-fork`](https://github.com/dlxmax/ha-bestin-fork) 가 유지보수를 이어 받았습니다. 본 포크의 직전 릴리스 v1.2.0 은 lunDreame v1.1.9 에서 발견된 버그를 정리한 버전입니다 (Python 3.14 호환, 게이트웨이 모드 감지 타임아웃, 무한 리로드 루프, 0x31 패킷 변형, 온도조절기 파싱 가드 등). 본 **v1.3.0** 에서는 신규 'iPark 스마트홈 앱' 옵션이 추가되었습니다.  
+*Upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) development stopped after v1.1.9. This fork [`dlxmax/ha-bestin-fork`](https://github.com/dlxmax/ha-bestin-fork) has taken over maintenance. Our previous release **v1.2.0** carried bug fixes against lunDreame's v1.1.9 (Python 3.14 compatibility, gateway-mode detection timeout, infinite reload loop, 0x31 packet variants, thermostat parsing guard, etc.). The new **v1.3.0** adds the "iPark Smarthome App" option.*
 
 ## 어떤 방식을 선택해야 하나요? / Which method should I pick?
 

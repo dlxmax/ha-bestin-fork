@@ -7,7 +7,7 @@ from homeassistant.const import Platform
 
 DOMAIN = "bestin"
 NAME = "BESTIN"
-VERSION = "1.3.0b1"
+VERSION = "1.3.0"
 
 PLATFORMS: list[Platform] = [
     Platform.CLIMATE,
