@@ -30,6 +30,12 @@ from typing import Any, Callable
 
 import aiohttp
 
+from homeassistant.components.climate.const import (
+    ATTR_CURRENT_TEMPERATURE,
+    ATTR_HVAC_MODE,
+    SERVICE_SET_TEMPERATURE,
+    HVACMode,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant, callback
@@ -500,6 +506,9 @@ class BestinIparkAppAPI:
         value: Any = normalize_status(unit_status)
         # 난방은 ``mode/setpoint/current`` 형식의 슬래시 문자열입니다.
         # Heat encodes status as ``mode/setpoint/current`` joined with '/'.
+        # Climate 엔티티가 읽는 키 (ATTR_HVAC_MODE 등) 와 정확히 일치해야 합니다.
+        # Keys must match what the climate entity reads (ATTR_HVAC_MODE etc.)
+        # otherwise climate.py raises KeyError → entity becomes unavailable.
         if cls.key == "temper":
             parts = (unit_status or "").split("/")
             mode = parts[0] if parts else ""
@@ -512,11 +521,12 @@ class BestinIparkAppAPI:
             except ValueError:
                 current = None
             value = {
-                "power": mode in ("on", "heat"),
-                "mode": mode,
-                "target": setpoint,
-                "current": current,
-                "raw": unit_status,
+                ATTR_HVAC_MODE: HVACMode.HEAT if mode in ("on", "heat") else HVACMode.OFF,
+                SERVICE_SET_TEMPERATURE: setpoint,
+                ATTR_CURRENT_TEMPERATURE: current,
+                # 부가 정보 — auxiliary fields for our own use / debugging
+                "raw_mode": mode,
+                "raw_status": unit_status,
             }
             # 'unit_cnt' 를 초과하는 방 번호는 제어 불가 — 별도 센서로 분리.
             # 정확한 의미는 단지마다 상이하며 확인되지 않았습니다.
