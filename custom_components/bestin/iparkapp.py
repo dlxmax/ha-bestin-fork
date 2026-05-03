@@ -45,9 +45,12 @@ from .const import (
     BRAND_PREFIX,
     DEFAULT_SCAN_INTERVAL,
     DEVICE_PLATFORM_MAP,
+    ENERGY_FRIENDLY_LABELS,
     LOGGER,
     MAIN_DEVICES,
     PLATFORM_SIGNAL_MAP,
+    SINGLE_CHANNEL_TYPES,
+    SINGLE_ROOM_TYPES,
     DeviceInfo,
     DeviceProfile,
 )
@@ -78,6 +81,41 @@ from .pwm import (
 )
 
 
+def _format_device_name(
+    device_type: str, device_room: str, sub_id: str | None
+) -> str:
+    """엔티티 표시명 빌드 — Build the per-entity display suffix.
+
+    device_info 레벨에서 'BESTIN <Type>' 가 이미 붙으므로 이 함수는 그 뒤에
+    오는 '식별자 꼬리표' 만 만듭니다. 같은 장치 유형 안에서 엔티티들을 구분할
+    수 있는 최소한의 정보만 포함합니다.
+
+    Returns just the identifier suffix HA will append after the
+    "BESTIN <Type>" device-group prefix. Goal: include only what
+    disambiguates entities within the group.
+
+    - Single-room types (livinglight / energy / smartlight): always live in
+      room "1", so the room number is noise. Show the sub_id only.
+    - Single-channel types (doorlock / gas / fan / ventil): typically have
+      one channel (sub_id == "1"), so the sub_id is noise. Show the room.
+    - energy with a recognised sub_id: substitute a friendly label
+      ("avg_elec" → "Neighbor avg electricity", "heat_supply" →
+      "Heating supply").
+    - Everything else: the v1.4.2 "{room} {sub_id_words}" form.
+    """
+    if device_type == "energy" and sub_id:
+        label = ENERGY_FRIENDLY_LABELS.get(sub_id)
+        if label is not None:
+            return label
+    if device_type in SINGLE_ROOM_TYPES:
+        return " ".join(sub_id.split("_")) if sub_id else ""
+    if device_type in SINGLE_CHANNEL_TYPES:
+        return device_room
+    if sub_id:
+        return f"{device_room} {' '.join(sub_id.split('_'))}"
+    return device_room
+
+
 class BestinIparkAppAPI:
     """단지 중앙 서버 클라이언트 — Per-complex central-server client.
 
@@ -106,6 +144,21 @@ class BestinIparkAppAPI:
         self.site = site
         self.username: str = entry.data[CONF_IPARKAPP_USERNAME]
         self.password: str = entry.data[CONF_IPARKAPP_PASSWORD]
+
+        # 표시용 version 마커 — climate.py 가 신/구 enqueue_command 프로토콜을
+        # 고를 때 'truthy version' 을 검사합니다. center.py 와 동일한 새 프로토콜
+        # ("room=on/22/24" 같은 슬래시 페이로드) 을 사용해야 하므로 truthy 값
+        # 을 노출합니다. v1.4.2 까지는 이 attr 이 없어서 climate.py 가 v1
+        # ``mode=bool`` 분기로 빠졌고, iparkapp 가 그 분기를 이해하지 못해
+        # OFF · setpoint 명령이 모두 무시되었습니다.
+        # Tag the API as a "new-protocol" gateway. climate.py uses
+        # ``getattr(api, CONF_VERSION, False)`` to choose between the legacy
+        # RS-485 ``mode=bool`` payload and the slash-joined ``room=on/22/24``
+        # payload (center.py / iparkapp share the latter). Without a truthy
+        # marker climate.py used the legacy path, which iparkapp's
+        # ``enqueue_command`` did not understand — silently dropping OFF and
+        # turning every setpoint change into "on/<bool-as-int>". v1.4.3.
+        self.version: str = "iparkapp"
 
         self.session: aiohttp.ClientSession = aiohttp.ClientSession(
             connector=aiohttp.TCPConnector(),
@@ -328,20 +381,17 @@ class BestinIparkAppAPI:
         did_suffix = f"_{sub_id}" if sub_id else ""
         full_device_id = f"{BRAND_PREFIX}_{device_id}{did_suffix}"
 
-        # 표시명에는 식별자 부분만 넣습니다. 장치 유형(예: 'Thermostat')은
-        # device_info 레벨에서 'BESTIN Thermostat' 처럼 한 번만 붙으므로,
-        # 엔티티 이름에 다시 넣으면 'BESTIN Thermostat Thermostat 1' 처럼
-        # 중복됩니다.
-        # Entity name carries only the identifier suffix (room / sub-id).
-        # The friendly type label is added once at the device_info level
-        # ("BESTIN Thermostat"), so HA composes "BESTIN Thermostat 1" for the
-        # final friendly_name. Putting the type word here too produced the
-        # ugly "BESTIN Temper Thermostat 1" doubling that v1.4.0/1.4.1 shipped.
-        if sub_id:
-            sub_id_parts = sub_id.split("_")
-            device_name = f"{device_room} {' '.join(sub_id_parts)}"
-        else:
-            device_name = f"{device_room}"
+        # 표시명에는 식별자 부분만 넣습니다. 장치 유형(예: 'Thermostats')은
+        # device_info 레벨에서 'BESTIN Thermostats' 처럼 한 번만 붙으므로,
+        # 엔티티 이름에 다시 넣으면 'BESTIN Thermostats Thermostat 1' 처럼
+        # 중복됩니다. v1.4.3 에서 식별자 노이즈 제거: 단일-방 유형은 device_room
+        # ("1") 을 생략, 단일-채널 유형은 sub_id 를 생략, 에너지는 친근한 라벨
+        # 매핑을 사용합니다.
+        # Entity name carries only the identifier suffix. v1.4.3: collapse
+        # redundant prefixes (single-room types drop the always-"1" room,
+        # single-channel types drop the always-"1" sub_id) and replace cryptic
+        # energy sub_ids ("avg_elec", "mine_gas") with friendly labels.
+        device_name = _format_device_name(device_type, device_room, sub_id)
 
         if sub_id and not sub_id.isdigit():
             device_type_lookup = (
@@ -406,6 +456,22 @@ class BestinIparkAppAPI:
         if device.info.state != status:
             device.info.state = status
             device.update_callbacks()
+
+    def _optimistic_temper_state(self, room_id: int, **fields: Any) -> None:
+        """클라이언트 사이드 즉시 반영 — Push state delta to a temper entity.
+
+        서버는 다음 폴링 (≤30초) 에 새 상태를 echo 해주지만, 사용자 클릭
+        과 화면 갱신 사이의 visible gap 을 줄이기 위해 즉시 갱신합니다.
+        Server will echo the change on the next 30s poll, but updating the
+        local state right after the command closes the visible click→
+        feedback gap from "RTT + poll cadence" down to instant.
+        """
+        full_id = f"{BRAND_PREFIX}_temper_{room_id}"
+        device = self.devices.get(full_id)
+        if device is None or not isinstance(device.info.state, dict):
+            return
+        device.info.state = {**device.info.state, **fields}
+        device.update_callbacks()
 
     def get_devices_from_domain(self, domain: str) -> list:
         """플랫폼별 등록된 장치 목록을 반환합니다 — Get devices for a HA platform.
@@ -586,8 +652,20 @@ class BestinIparkAppAPI:
             unit_cnt = self._unit_cnt.get("temper")
             if unit_cnt and device_number > unit_cnt:
                 # current 값이 가장 의미있음 — current temp is the useful value.
+                # v1.4.3: 별도 'BESTIN Heat Sensor' 카테고리를 없애고 BESTIN
+                # Energy 안의 'Heating supply' 센서로 통합합니다. 첫 번째 추가
+                # 방은 sub_id='heat_supply', 그 이후는 'heat_supply_<n>'.
+                # v1.4.3: fold these readings into BESTIN Energy as
+                # "Heating supply" (formerly the orphan "BESTIN Heat Sensor"
+                # device). Most installs only have one extra reading; if the
+                # server returns more, additional ones get a numbered sub_id.
+                sub_id = (
+                    "heat_supply"
+                    if device_number == unit_cnt + 1
+                    else f"heat_supply_{device_number}"
+                )
                 self._set_device(
-                    "heatsource", device_number, "supply", current if current is not None else value
+                    "energy", 1, sub_id, current if current is not None else value
                 )
                 return
 
@@ -687,23 +765,56 @@ class BestinIparkAppAPI:
             preset = _extract_preset_mode(kwargs)
             if preset is not None:
                 profile = self.pwm.set_preset(room_id, preset)
-                # passthrough preset (none) → 월패드에 직접 setpoint+모드 송신
-                # 'none' preset → push canonical setpoint straight to wallpad
+                # 즉시 UI 반영 — optimistic update for snappy preset feedback.
+                self._optimistic_temper_state(room_id, preset_mode=preset)
+                # passthrough preset (none) → 서버에 직접 setpoint+모드 송신
+                # 'none' preset → push canonical setpoint straight to server
                 if profile.cycle_period_s == 0:
                     await self.send_temper_raw_command(
                         room_id, f"on/{profile.canonical_setpoint_c:g}"
                     )
                 return
+
+            # OFF 감지 — climate.py 가 "off/<temp>" 를 보낼 때 setpoint 추출
+            # 후 'on/' 으로 송신하던 v1.4.2 까지의 버그 수정. 명시적 OFF 인
+            # 경우 off/{temp} 그대로 서버에 보내고 HA 엔티티는 즉시 OFF 로 표시.
+            # OFF detection — fixes v1.4.2 bug where climate.py's "off/<temp>"
+            # payload was unwrapped and re-sent as "on/<temp>", silently
+            # ignoring the OFF intent. Send off/{temp} verbatim and flip the
+            # HA entity to OFF immediately.
+            raw_room = kwargs.get("room") if kwargs else None
+            if isinstance(raw_room, str) and raw_room.lower().startswith("off/"):
+                target = _extract_temper_setpoint(value, kwargs)
+                if target is None:
+                    room_state = self.pwm.get_room(room_id)
+                    target = (
+                        room_state.user_setpoint
+                        if room_state is not None
+                        else 22.0
+                    )
+                self._optimistic_temper_state(room_id, **{ATTR_HVAC_MODE: HVACMode.OFF})
+                await self.send_temper_raw_command(room_id, f"off/{target:g}")
+                return
+
             target = _extract_temper_setpoint(value, kwargs)
             if target is not None:
+                # HEAT 명령 — optimistic update + setpoint 반영.
+                # HEAT command — push optimistic HVAC=HEAT and the new setpoint.
+                self._optimistic_temper_state(
+                    room_id,
+                    **{
+                        ATTR_HVAC_MODE: HVACMode.HEAT,
+                        SERVICE_SET_TEMPERATURE: target,
+                    },
+                )
                 room_state = self.pwm.get_room(room_id)
                 if room_state is not None and self.pwm.is_active_for(room_id):
                     # PWM 활성 — 컨트롤러에만 보관, 다음 tick 에서 적용
                     # PWM active — store in controller; next tick will apply.
                     self.pwm.set_setpoint(room_id, target)
                     return
-                # PWM 비활성 — 월패드에 직접 송신 (기존 동작)
-                # PWM not active — pass straight through to the wallpad.
+                # PWM 비활성 — 서버에 직접 송신 (기존 동작)
+                # PWM not active — pass straight through to the server.
                 self.pwm.set_setpoint(room_id, target)
                 await self.send_temper_raw_command(room_id, f"on/{target:g}")
                 return

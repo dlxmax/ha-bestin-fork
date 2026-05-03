@@ -7,7 +7,7 @@ from homeassistant.const import Platform
 
 DOMAIN = "bestin"
 NAME = "BESTIN"
-VERSION = "1.4.2"
+VERSION = "1.4.3"
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -118,16 +118,47 @@ FRIENDLY_TYPE_NAMES: dict[str, str] = {
     "smartlight": "Light",
     "electric": "Outlet",
     "outlet": "Outlet",
-    "temper": "Thermostat",
-    "thermostat": "Thermostat",
+    "temper": "Thermostats",
+    "thermostat": "Thermostats",
     "gas": "Gas Valve",
     "fan": "Ventilation",
     "ventil": "Ventilation",
     "mode": "Away Mode",
     "doorlock": "Door Lock",
-    "heatsource": "Heat Sensor",
+    # 'heatsource' removed in v1.4.3 — those readings now live under
+    # BESTIN Energy as 'Heating supply' (see ENERGY_FRIENDLY_LABELS).
     "energy": "Energy",
     "elevator": "Elevator",
+}
+
+# 엔티티 표시명 단순화 — v1.4.3.
+# Per-entity name simplification rules used by iparkapp.py's _initial_device.
+# Single-room types: device_room is always "1" (e.g. living-room lights, the
+# household-wide energy meters), so prepending it to the entity name is noise.
+SINGLE_ROOM_TYPES: set[str] = {"livinglight", "energy", "smartlight"}
+# Single-channel types: sub_id is always "1" (or duplicates device_room), so
+# the trailing index is noise too.
+SINGLE_CHANNEL_TYPES: set[str] = {"doorlock", "gas", "fan", "ventil"}
+
+# 친근한 에너지 라벨 — Friendly per-sub_id labels for BESTIN Energy entities.
+# The raw sub_ids ("avg_elec", "mine_gas", "hwater" ...) come straight from
+# the iparkapp REST payload and are cryptic in HA. Map them to readable
+# English. Two axes: "mine_*" is the household reading, "avg_*" is the
+# complex-wide neighbor average. "heat_supply" is the floor-heating supply
+# temperature reading the cloud server reports above unit_cnt (formerly the
+# orphan "BESTIN Heat Sensor" device entry, now folded in here).
+ENERGY_FRIENDLY_LABELS: dict[str, str] = {
+    "mine_elec":   "Electricity",
+    "avg_elec":    "Neighbor avg electricity",
+    "mine_gas":    "Gas",
+    "avg_gas":     "Neighbor avg gas",
+    "mine_water":  "Water",
+    "avg_water":   "Neighbor avg water",
+    "mine_hwater": "Hot water",
+    "avg_hwater":  "Neighbor avg hot water",
+    "mine_heat":   "Heating",
+    "avg_heat":    "Neighbor avg heating",
+    "heat_supply": "Heating supply",
 }
 
 

@@ -60,8 +60,12 @@ async def async_setup_entry(
 class BestinClimate(BestinDevice, ClimateEntity):
     """Defined the Climate."""
     TYPE = CLIMATE_DOMAIN
-    
+
     _enable_turn_on_off_backwards_compatibility = False
+    # icons.json 의 climate.thermostat.state_attributes.preset_mode 에 매핑.
+    # Maps preset_mode dropdown options to mdi icons (vacation→airplane,
+    # frost→snowflake, etc.) via icons.json.
+    _attr_translation_key = "thermostat"
 
     def __init__(self, device, hub: BestinHub):
         """Initialize the climate."""
@@ -179,5 +183,14 @@ class BestinClimate(BestinDevice, ClimateEntity):
 
     @property
     def target_temperature_step(self) -> float:
-        """Step tempreature."""
-        return 0.5
+        """Step temperature.
+
+        iparkapp 게이트웨이의 클라우드 서버는 정수 setpoint 만 받습니다 (live
+        probe 로 확인됨: 22.5 를 보내도 22 로 echo). 사용자에게 사용할 수 없는
+        해상도를 노출하지 않도록 1.0 으로 고정합니다. RS-485/HDC 경로는 영향
+        없습니다.
+        The iparkapp cloud server stores integer setpoints only (verified by
+        live probe — sending 22.5 echoes back as 22). Advertising 1.0 here
+        keeps the HA UI honest. RS-485 / HDC paths are unaffected.
+        """
+        return 1.0 if self._version_exists else 0.5

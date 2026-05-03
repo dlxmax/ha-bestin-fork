@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 
 from homeassistant.config_entries import ConfigEntry, ConfigEntryNotReady
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
@@ -47,9 +48,49 @@ def _cleanup_legacy_doorlock_switches(hass: HomeAssistant, entry: ConfigEntry) -
         )
 
 
+# urlsafe-base64 hash suffix may include '_' and '-' (e.g. 'RI4_NLDU').
+_LEGACY_HEATSOURCE_RE = re.compile(r"^bestin_heatsource_\d+_supply(-[A-Z0-9_-]+)?$")
+
+
+def _cleanup_legacy_heatsource_sensors(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """v1.4.3 마이그레이션: heatsource 센서가 BESTIN Energy 로 이동했습니다.
+
+    1.4.2 까지 ``BESTIN Heat Sensor`` 디바이스 그룹에 노출되던
+    ``bestin_heatsource_<n>_supply-<hash>`` 엔티티는 1.4.3 부터 BESTIN Energy
+    그룹의 ``bestin_energy_1_heat_supply*`` 로 이동했습니다. 자동 rename 대신
+    레지스트리에서 제거하고, 다음 폴링에서 새 unique_id 로 다시 등록되도록
+    합니다 (v1.4.2 의 도어락 정리와 동일한 트레이드오프).
+
+    v1.4.3 migration: the orphan "BESTIN Heat Sensor" device group was folded
+    into BESTIN Energy as "Heating supply". Drop the legacy
+    ``bestin_heatsource_<n>_supply-*`` entries; new
+    ``bestin_energy_1_heat_supply*`` entities appear on the next poll. Same
+    trade-off the v1.4.2 doorlock cleanup made.
+    """
+    registry = er.async_get(hass)
+    removed = 0
+    for entity_id, ent in list(registry.entities.items()):
+        if ent.config_entry_id != entry.entry_id:
+            continue
+        if not _LEGACY_HEATSOURCE_RE.match(ent.unique_id or ""):
+            continue
+        registry.async_remove(entity_id)
+        removed += 1
+    if removed:
+        LOGGER.info(
+            "v1.4.3 마이그레이션: 오래된 heatsource 센서 %d개 제거 / "
+            "Removed %d legacy heatsource sensor entries (folded into BESTIN Energy).",
+            removed,
+            removed,
+        )
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the BESTIN integration."""
     _cleanup_legacy_doorlock_switches(hass, entry)
+    _cleanup_legacy_heatsource_sensors(hass, entry)
     hub = BestinHub(hass, entry)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = hub
 

@@ -1,0 +1,23 @@
+{
+  "entity": {
+    "climate": {
+      "thermostat": {
+        "state_attributes": {
+          "preset_mode": {
+            "default": "mdi:thermostat",
+            "state": {
+              "none": "mdi:thermometer",
+              "comfort": "mdi:sofa",
+              "eco": "mdi:leaf",
+              "sleep": "mdi:weather-night",
+              "away": "mdi:home-export-outline",
+              "vacation": "mdi:airplane",
+              "frost": "mdi:snowflake",
+              "boost": "mdi:thermometer-high"
+            }
+          }
+        }
+      }
+    }
+  }
+}
