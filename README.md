@@ -11,6 +11,7 @@
 ## 목차 / Contents
 
 - [프로젝트 소개 / About](#프로젝트-소개--about)
+- [유지보수 현황 / Maintenance status](#유지보수-현황--maintenance-status)
 - [어떤 방식을 선택해야 하나요? / Which method should I pick?](#어떤-방식을-선택해야-하나요--which-method-should-i-pick)
 - [추가 배경 / Why this fork exists](#추가-배경--why-this-fork-exists)
 - [설치 / Installation](#설치--installation)
@@ -23,6 +24,11 @@
 
 세 가지 연결 방식 중 본인 단지·환경에 맞는 것을 선택해 월패드를 Home Assistant 에 연동합니다. 통합과 모든 문서는 한국어 / 영어를 동시 지원하며, 기존 코드 경로는 그대로 유지된 채 새 옵션이 **추가**된 것이므로 기존 사용자에게 영향이 없습니다.  
 *Three connection methods, pick whichever matches your complex/setup. Integration and all docs are bilingual (Korean first, English second). The new option is **additive** — no existing code path was modified, so prior users see no behavioural change.*
+
+## 유지보수 현황 / Maintenance status
+
+원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 의 작업이 v1.1.9 이후로 중단되어, 본 포크 [`dlxmax/ha-bestin-fork`](https://github.com/dlxmax/ha-bestin-fork) 가 유지보수를 이어 받았습니다. 본 포크의 직전 릴리스 v1.2.0 은 lunDreame v1.1.9 에서 발견된 버그를 정리한 버전입니다 (Python 3.14 호환, 게이트웨이 모드 감지 타임아웃, 무한 리로드 루프, 0x31 패킷 변형, 온도조절기 파싱 가드 등). 본 v1.3.0 (베타) 에서는 신규 'iPark 스마트홈 앱' 옵션이 추가되었습니다.  
+*Upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) development stopped after v1.1.9. This fork [`dlxmax/ha-bestin-fork`](https://github.com/dlxmax/ha-bestin-fork) has taken over maintenance. Our previous release **v1.2.0** carried bug fixes against lunDreame's v1.1.9 (Python 3.14 compatibility, gateway-mode detection timeout, infinite reload loop, 0x31 packet variants, thermostat parsing guard, etc.). The new **v1.3.0 (beta)** adds the "iPark Smarthome App" option.*
 
 ## 어떤 방식을 선택해야 하나요? / Which method should I pick?
 
@@ -109,7 +115,7 @@ iPark 스마트홈 앱 / 클라우드 옵션은 별도의 하드웨어가 필요
 *Found a bug? Please file an [issue](https://github.com/dlxmax/ha-bestin-fork/issues).*
 
 - 테스트 중이며 다양한 환경에서의 검증이 필요합니다. / *Still under testing — coverage from more household configurations is welcome.*
-- 월패드 버전 3.0 은 미테스트입니다. 도움 주실 분은 이슈 탭에 연락 주세요. / *Wallpad 3.0 is not yet tested — please leave contact info on the issues tab if you can help.*
+- 월패드 버전 3.0 은 미테스트입니다. / *Wallpad 3.0 is not yet tested.*
 - 시리얼 통신은 미테스트입니다. / *Serial communication has not been tested.*
 - 좋은 아이디어가 있으면 [Pull requests](https://github.com/dlxmax/ha-bestin-fork/pulls) 환영합니다. / *Got a better idea? Open a [pull request](https://github.com/dlxmax/ha-bestin-fork/pulls).*
 - 본 통합 사용으로 발생하는 문제에 대해 책임지지 않습니다. / *Use at your own risk — no warranty is provided.*

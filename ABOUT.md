@@ -21,6 +21,11 @@
 본 포크는 기존 두 가지 옵션 (로컬 RS-485, IPARK 스마트홈 클라우드) 의 코드를 그대로 유지한 채 세 번째 옵션 'iPark 스마트홈 앱' 만 **추가**합니다. 기존 사용자에게는 어떠한 동작 변화도 없습니다.  
 *This fork strictly **adds** the third "iPark Smarthome App" option without touching any existing code paths. Users of the previous two methods see no behavioural change.*
 
+## 유지보수 현황 / Maintenance status
+
+원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 의 작업이 v1.1.9 이후로 중단되어, 본 포크가 유지보수를 이어 받았습니다. 본 포크의 직전 릴리스 v1.2.0 은 lunDreame v1.1.9 에서 발견된 버그를 정리한 버전입니다 (Python 3.14 호환, 게이트웨이 모드 감지 타임아웃, 무한 리로드 루프, 0x31 패킷 변형, 온도조절기 파싱 가드 등). 본 v1.3.0 (베타) 에서는 신규 'iPark 스마트홈 앱' 옵션이 추가되었습니다.  
+*Upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) development stopped after v1.1.9. This fork has taken over maintenance. Our previous release **v1.2.0** carried bug fixes against lunDreame's v1.1.9 (Python 3.14 compatibility, gateway-mode detection timeout, infinite reload loop, 0x31 packet variants, thermostat parsing guard, etc.). The new **v1.3.0 (beta)** adds the "iPark Smarthome App" option.*
+
 ## 왜 만들었는가 / Why this exists
 
 본 포크 작성자의 가정에서는 두 기존 방식이 모두 동작하지 않았습니다. 월패드는 RS-422 라인을 사용해 RS-485 어댑터로 신호 해석이 어려웠고, 단지 웹사이트의 제어 명령은 응답 없이 사라졌습니다. 그러나 같은 서버에 안드로이드 [iPark 스마트홈 앱](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet) 을 사용하면 정상 동작했습니다. 앱을 정적 분석한 결과, 앱은 웹사이트와 같은 URL 을 호출하지만 두 가지 핵심 차이가 있었습니다 — 정확한 PHP 경로 (`/webapp/data/...`) 와 필수 AJAX 헤더 (`X-Requested-With: XMLHttpRequest`). 헤더 누락 시 서버는 즉시 `result="timeout"` 더미 응답을 돌려보냅니다 — 웹사이트가 무반응이었던 직접적인 원인입니다. 본 신규 옵션은 두 차이를 정확히 반영합니다.  
