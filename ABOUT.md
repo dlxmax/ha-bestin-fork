@@ -38,12 +38,12 @@
 
 ## 라이선스 / License
 
-원본 [`fxnnxc/ha-bestin`](https://github.com/fxnnxc/ha-bestin) 의 라이선스를 따릅니다.  
-*Follows the upstream [`fxnnxc/ha-bestin`](https://github.com/fxnnxc/ha-bestin) license.*
+원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 의 라이선스를 따릅니다.  
+*Follows the upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) license.*
 
 ## 감사의 말 / Acknowledgments
 
-- [@fxnnxc](https://github.com/fxnnxc) — 원본 통합 작성자.<br>*Original integration author.*
+- [@lunDreame](https://github.com/lunDreame) — 원본 통합 작성자.<br>*Original integration author.*
 - [Mobiletalk](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet) — 안드로이드 iPark 스마트홈 앱 개발사 (앱의 호출 패턴을 분석해 본 통합을 구현).<br>*Developer of the Android iPark Smarthome app (whose call pattern this fork mirrors).*
 
 ## 더 알아보기 / Learn more

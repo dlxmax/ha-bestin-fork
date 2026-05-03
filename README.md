@@ -5,8 +5,8 @@
 > 한국 BESTIN / 현대 IPARK 월패드용 Home Assistant 커스텀 컴포넌트.  
 > *Home Assistant custom component for Korean BESTIN / Hyundai IPARK wallpads.*
 
-본 저장소는 [원본](https://github.com/fxnnxc/ha-bestin) 을 포크하여, 같은 단지에서도 동작하지 않던 기존 두 가지 방식을 보완하는 세 번째 옵션 — **iPark 스마트홈 앱** — 을 추가합니다. 자세한 프로젝트 소개는 [ABOUT.md](./ABOUT.md) 참조.  
-*This repo forks [the upstream](https://github.com/fxnnxc/ha-bestin) and adds a third gateway — **iPark Smarthome App** — that fills the gap when the two existing methods don't work in a given complex. See [ABOUT.md](./ABOUT.md) for the full project overview.*
+본 저장소는 [원본 `lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 을 포크하여, 같은 단지에서도 동작하지 않던 기존 두 가지 방식을 보완하는 세 번째 옵션 — **iPark 스마트홈 앱** — 을 추가합니다. 자세한 프로젝트 소개는 [ABOUT.md](./ABOUT.md) 참조.  
+*This repo forks [the upstream `lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) and adds a third gateway — **iPark Smarthome App** — that fills the gap when the two existing methods don't work in a given complex. See [ABOUT.md](./ABOUT.md) for the full project overview.*
 
 ## 목차 / Contents
 
