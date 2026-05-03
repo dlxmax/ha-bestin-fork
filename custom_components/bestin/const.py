@@ -91,8 +91,12 @@ DEVICE_PLATFORM_MAP = {
     "electric": Platform.SWITCH.value,
     "electric:standbycut": Platform.SWITCH.value,
     "gas": Platform.SWITCH.value,
-    # 지역난방 등 '방' 이 아닌 추가 난방 출처 — Heat-source readings beyond the
-    # household's controllable rooms (e.g. district heating supply temperature).
+    # 'unit_cnt' 를 초과해 응답되는 추가 난방 온도 센서. 구체적 의미는 단지마다
+    # 상이하며, 지역난방 공급 온도일 수 있으나 확인되지 않았습니다.
+    # Extra heat-temperature reading the wallpad reports beyond the household's
+    # controllable rooms (rooms past `status_map.unit_cnt`). Exact meaning
+    # varies by complex — possibly a district-heating supply temp, possibly
+    # something else; not confirmed.
     "heatsource": Platform.SENSOR.value,
 }
 

@@ -66,7 +66,7 @@ i-parklife.com 디렉터리에서 60여 개 단지가 자동으로 조회됩니�
 | 각실 조명 / Per-room lights | 객실별 ON/OFF (단지에서 활성화된 경우)<br>*Per-room ON/OFF where the wallpad supports it.* |
 | 콘센트 / Outlets | ON/OFF + 대기전력 자동차단 (`set` / `unset`)<br>*ON/OFF plus standby-cutoff (`set` / `unset`).* |
 | 난방 / Thermostat | 객실별 ON/OFF + 목표온도 — `unit_cnt` 가 알려주는 객실만 climate 로 노출<br>*Per-room ON/OFF + setpoint, only for rooms reported in `unit_cnt`.* |
-| 지역난방 공급 온도 / District heating supply temp | `unit_cnt` 를 초과한 추가 'room' 은 `heatsource` 센서로 노출 (예: 지역난방 공급 온도)<br>*Any 'room' beyond `unit_cnt` is exposed as a read-only `heatsource` sensor.* |
+| 추가 비제어 난방 센서 / Extra uncontrollable heat sensor | `unit_cnt` 를 초과한 추가 'room' 응답은 읽기 전용 `heatsource` 센서로 노출됩니다. 정확한 의미는 단지마다 다르며, 지역난방 공급 온도일 가능성이 있으나 다른 출처일 수도 있습니다 (확인 안 됨).<br>*Any 'room' response beyond `unit_cnt` is exposed as a read-only `heatsource` sensor. The exact meaning varies by complex — it could be the district heating supply temperature, or it could be something else (we haven't confirmed).* |
 | 가스밸브 / Gas valve | 닫기 전용 (앱과 동일)<br>*Close only — matches the official app.* |
 | 환기 / Ventilation | ON/OFF + 풍량 (low / mid / high)<br>*ON/OFF + speed (low / mid / high).* |
 | 외출 모드 / Away mode | 'unoccupied' 설정 (앱과 동일)<br>*Sets `unoccupied` — matches the app.* |

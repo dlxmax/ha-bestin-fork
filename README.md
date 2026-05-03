@@ -101,7 +101,7 @@ iPark 스마트홈 앱 / 클라우드 옵션은 별도의 하드웨어가 필요
 | 환기 / Ventilation | O | 프리셋 (자연풍) / Presets (natural ventilation) |
 | 가스 / Gas valve | O | 닫기 전용 (앱 동일) / Close-only (matches the app) |
 | 도어락 / Door lock | O | 상태 표시만 (앱 동일) / Status only (matches the app) |
-| 난방 / Heating | O | 객실 + 지역난방 공급 온도 센서 (있는 경우) / Per-room + district heating supply temp sensor (if present) |
+| 난방 / Heating | O | 객실 + 추가 비제어 난방 온도 센서 (있는 경우, 정확한 의미는 단지마다 상이) / Per-room + an extra uncontrollable heat-temperature sensor where the wallpad reports more 'rooms' than it has thermostats (exact meaning varies by complex) |
 | 외출 모드 / Away mode | O | iPark 스마트홈 앱 옵션 한정 / iPark Smarthome App option only |
 | 에너지 모니터링 / Energy monitoring | O | 전기 / 가스 / 난방 / 온수 / 수도 — iPark 스마트홈 앱 옵션 한정 / Electric / Gas / Heat / Hot water / Water — iPark Smarthome App option only |
 

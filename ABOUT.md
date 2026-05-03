@@ -33,8 +33,8 @@
 
 ## 지원 기기 / Supported devices
 
-거실 조명, 각실 조명, 콘센트 (대기전력 자동차단 포함), 난방 (객실 + 지역난방 공급 온도 센서), 가스밸브 (닫기 전용), 환기 (속도 포함), 외출 모드, 도어락 (상태만), 에너지 모니터링 (전기 / 가스 / 난방 / 온수 / 수도), 엘리베이터 호출 (해당 옵션 한정).  
-*Living-room lights, per-room lights, outlets (with standby cutoff), thermostats (per-room + district-heating supply-temp sensor), gas valve (close-only), ventilation (with speeds), away mode, doorlock (status only), energy monitoring (Electric / Gas / Heat / Hot water / Water), elevator call (where supported).*
+거실 조명, 각실 조명, 콘센트 (대기전력 자동차단 포함), 난방 (객실 + 추가 비제어 난방 온도 센서; 정확한 의미는 단지마다 상이), 가스밸브 (닫기 전용), 환기 (속도 포함), 외출 모드, 도어락 (상태만), 에너지 모니터링 (전기 / 가스 / 난방 / 온수 / 수도), 엘리베이터 호출 (해당 옵션 한정).  
+*Living-room lights, per-room lights, outlets (with standby cutoff), thermostats (per-room + an extra uncontrollable heat-temperature sensor when the wallpad exposes more 'rooms' than it has thermostats; the exact meaning varies by complex), gas valve (close-only), ventilation (with speeds), away mode, doorlock (status only), energy monitoring (Electric / Gas / Heat / Hot water / Water), elevator call (where supported).*
 
 ## 다국어 지원 / Localisation
 

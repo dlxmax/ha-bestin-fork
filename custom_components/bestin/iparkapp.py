@@ -108,8 +108,9 @@ class BestinIparkAppAPI:
         self._room_exists: dict[tuple[str, int], bool] = {}
         # status_map 의 unit_cnt 캐시 — Cached <status_map unit_cnt="N"> per
         # device class. For heat, anything beyond ``unit_cnt`` is exposed as a
-        # ``heatsource`` sensor (e.g. district heating supply temperature)
-        # rather than as a climate entity.
+        # ``heatsource`` sensor rather than as a climate entity. The exact
+        # meaning of those extra readings varies by complex and is not
+        # confirmed (one speculation is district-heating supply temperature).
         self._unit_cnt: dict[str, int] = {}
 
     # ------------------------------------------------------------------
@@ -419,6 +420,11 @@ class BestinIparkAppAPI:
             self._room_exists[(cls.key, room)] = True
 
         # status_map 의 unit_cnt 를 캐시합니다 — Cache unit_cnt for later use.
+        # ``unit_cnt`` 를 넘어서는 'room' 응답은 제어 가능한 방이 아니므로 별도
+        # heatsource 센서로 분리합니다 (정확한 의미는 단지마다 상이).
+        # Any 'room' returned beyond ``unit_cnt`` isn't a controllable room —
+        # we route it to a separate ``heatsource`` sensor; exact meaning varies
+        # by complex (we don't claim to know what it is).
         status_map = (root or ET.Element("imap")).find(".//status_map")
         if status_map is not None and status_map.get("unit_cnt"):
             try:
@@ -487,10 +493,13 @@ class BestinIparkAppAPI:
                 "current": current,
                 "raw": unit_status,
             }
-            # 'unit_cnt' 를 초과하는 방 번호는 제어 불가 (지역난방 공급 온도 등)
-            # Rooms beyond ``status_map.unit_cnt`` aren't controllable thermostats
-            # — they're read-only heat-source readings (e.g. district heating
-            # supply temp). Re-route to a sensor entity.
+            # 'unit_cnt' 를 초과하는 방 번호는 제어 불가 — 별도 센서로 분리.
+            # 정확한 의미는 단지마다 상이하며 확인되지 않았습니다.
+            # Rooms beyond ``status_map.unit_cnt`` aren't controllable
+            # thermostats — re-route to a read-only sensor entity. Exact
+            # meaning varies by complex; we don't claim to know what the value
+            # represents (could be a district-heating supply temp, could be
+            # something else entirely).
             unit_cnt = self._unit_cnt.get("temper")
             if unit_cnt and device_number > unit_cnt:
                 # current 값이 가장 의미있음 — current temp is the useful value.
