@@ -85,6 +85,23 @@ DEFAULT_SESSION_REFRESH_MINUTES = 15
 # 객실 탐색 범위 — Probe range when discovering room-scoped devices.
 ROOM_PROBE_RANGE = range(1, 7)
 
+# 친근한 표시명 — Friendly display names for HA entities. The internal
+# device_type strings (e.g. ``livinglight``, ``temper``) are kept for
+# routing, but HA shows the values below.
+FRIENDLY_DEVICE_NAMES: dict[str, str] = {
+    "livinglight": "Light",
+    "light": "Light",
+    "electric": "Outlet",
+    "temper": "Thermostat",
+    "gas": "Gas Valve",
+    "ventil": "Ventilation",
+    "mode": "Away Mode",
+    "doorlock": "Door Lock",
+    "heatsource": "Heat Sensor",
+    "energy": "Energy",
+}
+
+
 # Referer 헤더용 페이지 매핑 — Per-class referer page for AJAX fidelity.
 # 앱 WebView 가 항상 이런 페이지에서 fetch 호출을 하므로 동일하게 흉내냅니다.
 # The WebView always issues device fetches from these pages; we mirror that.

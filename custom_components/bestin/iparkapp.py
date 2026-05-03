@@ -21,6 +21,8 @@ URL and headers as the official Android app's WebView.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import json
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
@@ -52,6 +54,7 @@ from .iparkapp_const import (
     DEVICE_CLASSES,
     ENERGY_CATEGORIES,
     ENERGY_PATH_TEMPLATE,
+    FRIENDLY_DEVICE_NAMES,
     INDEX_PATH,
     LOGIN_DATA_PATH,
     LOGIN_LANDING_PATH,
@@ -101,8 +104,12 @@ class BestinIparkAppAPI:
 
         self.devices: dict[str, DeviceProfile] = {}
         self.tasks: list[Any] = []
-        self.last_update: datetime = datetime.now()
-        self.last_refresh: datetime = datetime.now()
+        # 속성 이름은 device.py 의 extra_state_attributes 가 읽는 것과 정확히
+        # 일치해야 합니다 — must match exactly what device.py reads in
+        # ``extra_state_attributes``, otherwise entities raise AttributeError
+        # and HA marks them unavailable.
+        self.last_update_time: datetime = datetime.now()
+        self.last_sess_refresh: datetime = datetime.now()
         # 객실(room) 디바이스가 실제로 존재하는지 결과 캐시 — Cache of which
         # room-scoped devices actually exist so we don't poll dead rooms.
         self._room_exists: dict[tuple[str, int], bool] = {}
@@ -153,13 +160,19 @@ class BestinIparkAppAPI:
 
     @callback
     async def _scheduled_poll(self, now: datetime) -> None:
-        self.last_update = now
-        await self._poll_all()
+        self.last_update_time = now
+        try:
+            await self._poll_all()
+        except Exception as ex:  # noqa: BLE001 — log everything so HA shows it
+            LOGGER.exception("폴링 실패 — Polling failed: %s", ex)
 
     @callback
     async def _scheduled_refresh(self, now: datetime) -> None:
-        self.last_refresh = now
-        await self._login()
+        self.last_sess_refresh = now
+        try:
+            await self._login()
+        except Exception as ex:  # noqa: BLE001
+            LOGGER.exception("세션 갱신 실패 — Session refresh failed: %s", ex)
 
     # ------------------------------------------------------------------
     # 인증 — Authentication
@@ -278,6 +291,17 @@ class BestinIparkAppAPI:
     # Device registration (mirrors center.py's pattern so HA platforms work as-is)
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _short_hash(s: str) -> str:
+        """결정적 해시 — Deterministic short hash (mirrors center.py).
+
+        Python's built-in ``hash()`` is randomised per process, which would
+        change unique_ids on every HA restart and orphan entities. Use
+        sha256-based base64 truncation instead so the suffix is stable.
+        """
+        digest = hashlib.sha256(s.encode()).digest()
+        return base64.urlsafe_b64encode(digest)[:8].decode("utf-8").upper()
+
     def _initial_device(
         self, device_id: str, sub_id: str | None, state: Any
     ) -> DeviceProfile:
@@ -286,13 +310,14 @@ class BestinIparkAppAPI:
         did_suffix = f"_{sub_id}" if sub_id else ""
         full_device_id = f"{BRAND_PREFIX}_{device_id}{did_suffix}"
 
+        # 친근한 이름 (예: 'livinglight' → 'Light', 'temper' → 'Thermostat')
+        # Friendly display name (e.g. 'livinglight' → 'Light').
+        friendly = FRIENDLY_DEVICE_NAMES.get(device_type, device_type.title())
         if sub_id:
             sub_id_parts = sub_id.split("_")
-            device_name = (
-                f"{device_type} {device_room} {' '.join(sub_id_parts)}".title()
-            )
+            device_name = f"{friendly} {device_room} {' '.join(sub_id_parts)}"
         else:
-            device_name = f"{device_type} {device_room}".title()
+            device_name = f"{friendly} {device_room}"
 
         if sub_id and not sub_id.isdigit():
             device_type_lookup = (
@@ -302,7 +327,7 @@ class BestinIparkAppAPI:
             device_type_lookup = device_type
 
         if device_type_lookup not in MAIN_DEVICES:
-            uid_suffix = f"-{abs(hash(self.hub_id)) % (16 ** 8):08X}"
+            uid_suffix = f"-{self._short_hash(self.hub_id)}"
         else:
             uid_suffix = ""
         unique_id = f"{full_device_id}{uid_suffix}"
