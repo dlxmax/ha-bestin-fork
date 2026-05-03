@@ -8,7 +8,7 @@ import re
 from homeassistant.config_entries import ConfigEntry, ConfigEntryNotReady
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .const import DOMAIN, LOGGER, PLATFORMS, CONF_SESSION
 from .hub import BestinHub
@@ -93,6 +93,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _cleanup_legacy_heatsource_sensors(hass, entry)
     hub = BestinHub(hass, entry)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = hub
+
+    # 허브 디바이스 등록 — Register the hub as a device so per-platform
+    # device entries' ``via_device`` references resolve. v1.4.3 까지는 각 엔티티
+    # 가 ``via_device=(DOMAIN, hub_id)`` 를 선언했지만 일치하는 부모 디바이스
+    # 가 등록되지 않아 HA 가 경고를 찍었고, HA 2025.12 부터는 이로 인해 엔티티
+    # 가 unavailable 로 빠집니다. 모든 게이트웨이 (controller, center, iparkapp)
+    # 에 공통으로 적용됩니다. v1.4.4.
+    # Without this, HA logs:
+    #   'device_registry.async_get_or_create' referencing a non existing
+    #   `via_device` (...). This will stop working in Home Assistant 2025.12.0.
+    # ...and on HA ≥ 2025.12 it actually breaks: every entity with a missing
+    # via_device parent is rendered "unavailable".
+    device_registry = dr.async_get(hass)
+    device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, str(hub.hub_id))},
+        manufacturer="HDC Labs Co., Ltd.",
+        model=hub.wp_version,
+        name=hub.name,
+        sw_version=hub.sw_version,
+    )
 
     # iPark 스마트홈 앱 — new gateway type takes precedence when its key is present.
     if CONF_IPARKAPP_SITE in entry.data:
