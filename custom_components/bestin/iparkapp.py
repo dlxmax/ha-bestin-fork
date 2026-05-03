@@ -56,7 +56,6 @@ from .iparkapp_const import (
     CONF_IPARKAPP_PASSWORD,
     CONF_IPARKAPP_SITE,
     CONF_IPARKAPP_USERNAME,
-    CONF_PWM_MODE,
     DEFAULT_SESSION_REFRESH_MINUTES,
     DEVICE_CLASSES,
     ENERGY_CATEGORIES,
@@ -74,9 +73,8 @@ from .iparkapp_const import (
     normalize_status,
 )
 from .pwm import (
-    DEFAULT_PWM_MODE,
-    PWM_OFF,
-    PWM_VALID_MODES,
+    PRESET_MODES_DEFAULT,
+    PRESET_NONE,
     PwmController,
 )
 
@@ -118,12 +116,10 @@ class BestinIparkAppAPI:
         self.devices: dict[str, DeviceProfile] = {}
         self.tasks: list[Any] = []
 
-        # PWM 컨트롤러 — Optional slow-PWM thermostat layer.
-        pwm_mode = entry.options.get(CONF_PWM_MODE, DEFAULT_PWM_MODE)
-        if pwm_mode not in PWM_VALID_MODES:
-            pwm_mode = DEFAULT_PWM_MODE
-        self.pwm: PwmController | None = (
-            PwmController(self, pwm_mode) if pwm_mode != PWM_OFF else None
+        # PWM 컨트롤러 — Always present. Per-room PWM is engaged when the
+        # user picks a non-'none' preset_mode on a thermostat entity.
+        self.pwm: PwmController = PwmController(
+            send_command=self.send_temper_raw_command,
         )
         # 속성 이름은 device.py 의 extra_state_attributes 가 읽는 것과 정확히
         # 일치해야 합니다 — must match exactly what device.py reads in
@@ -162,8 +158,7 @@ class BestinIparkAppAPI:
                 self.hass, self._scheduled_refresh, refresh_interval
             ),
         ]
-        if self.pwm is not None:
-            self.pwm.start(self.hass)
+        self.pwm.start(self.hass)
         LOGGER.info(
             "iPark 스마트홈 앱 연동 시작 — Started iParkApp client for %s (%s)",
             self.site.get("sitename", self.host),
@@ -178,8 +173,7 @@ class BestinIparkAppAPI:
             except Exception:  # pragma: no cover — defensive
                 pass
         self.tasks = []
-        if self.pwm is not None:
-            await self.pwm.stop()
+        await self.pwm.stop()
         if not self.session.closed:
             await self.session.close()
 
@@ -546,16 +540,19 @@ class BestinIparkAppAPI:
                 # 부가 정보 — auxiliary fields for our own use / debugging
                 "raw_mode": mode,
                 "raw_status": unit_status,
+                # 표준 HA preset_mode 지원 — Standard HA preset_mode dropdown.
+                "preset_modes": list(PRESET_MODES_DEFAULT),
             }
-            # PWM 활성화 시 컨트롤러에 현재 온도 갱신 + 표시 setpoint 덮어쓰기.
-            # When PWM is active, feed current temp into the controller and
-            # override the displayed setpoint with the user's true value
-            # (the wallpad echo is manipulated during ON pulses).
-            if self.pwm is not None:
-                self.pwm.upsert_room(device_number, current, setpoint)
-                user_setpoint = self.pwm.get_displayed_setpoint(device_number)
-                if user_setpoint is not None:
-                    value[SERVICE_SET_TEMPERATURE] = user_setpoint
+            # PWM 활성화 시 컨트롤러에 현재 온도 + 사용자 setpoint 갱신.
+            # PWM 활성 객실은 사용자의 true setpoint 가 표시됩니다.
+            self.pwm.upsert_current_temp(device_number, current)
+            room_state = self.pwm.get_room(device_number)
+            if room_state is not None:
+                value["preset_mode"] = room_state.preset
+                if self.pwm.is_active_for(device_number):
+                    value[SERVICE_SET_TEMPERATURE] = room_state.user_setpoint
+            else:
+                value["preset_mode"] = PRESET_NONE
             # 'unit_cnt' 를 초과하는 방 번호는 제어 불가 — 별도 센서로 분리.
             # 정확한 의미는 단지마다 상이하며 확인되지 않았습니다.
             # Rooms beyond ``status_map.unit_cnt`` aren't controllable
@@ -661,14 +658,31 @@ class BestinIparkAppAPI:
             )
             return
 
-        # PWM 활성 시 온도조절기 명령은 컨트롤러로 라우팅됩니다.
-        # When PWM is active, route thermostat commands into the controller
-        # rather than pushing directly to the wallpad. The controller will
-        # then issue manipulated on/off pulses on its own tick loop.
-        if device_type == "temper" and self.pwm is not None:
+        # 온도조절기는 표준 HA preset_mode 와 setpoint 양쪽을 수용합니다.
+        # Thermostat: accept both standard HA preset_mode and setpoint changes.
+        if device_type == "temper":
+            preset = _extract_preset_mode(kwargs)
+            if preset is not None:
+                profile = self.pwm.set_preset(room_id, preset)
+                # passthrough preset (none) → 월패드에 직접 setpoint+모드 송신
+                # 'none' preset → push canonical setpoint straight to wallpad
+                if profile.cycle_period_s == 0:
+                    await self.send_temper_raw_command(
+                        room_id, f"on/{profile.canonical_setpoint_c:g}"
+                    )
+                return
             target = _extract_temper_setpoint(value, kwargs)
             if target is not None:
+                room_state = self.pwm.get_room(room_id)
+                if room_state is not None and self.pwm.is_active_for(room_id):
+                    # PWM 활성 — 컨트롤러에만 보관, 다음 tick 에서 적용
+                    # PWM active — store in controller; next tick will apply.
+                    self.pwm.set_setpoint(room_id, target)
+                    return
+                # PWM 비활성 — 월패드에 직접 송신 (기존 동작)
+                # PWM not active — pass straight through to the wallpad.
                 self.pwm.set_setpoint(room_id, target)
+                await self.send_temper_raw_command(room_id, f"on/{target:g}")
                 return
 
         cls = DEVICE_CLASSES[device_type]
@@ -735,6 +749,16 @@ class BestinIparkAppAPI:
             LOGGER.warning(
                 "제어 실패 — %s %s=%s result=%s", cls.key, unit_id, value, result,
             )
+
+
+def _extract_preset_mode(kwargs: dict | None) -> str | None:
+    """climate.py 가 보낸 preset_mode 인자를 추출 — Pull preset_mode out of kwargs.
+
+    The shared climate entity calls ``enqueue_command(preset_mode="...")``.
+    """
+    if not kwargs:
+        return None
+    return kwargs.get("preset_mode") or kwargs.get("preset")
 
 
 def _extract_temper_setpoint(value: Any, kwargs: dict | None) -> float | None:

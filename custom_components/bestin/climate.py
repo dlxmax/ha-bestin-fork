@@ -66,11 +66,19 @@ class BestinClimate(BestinDevice, ClimateEntity):
     def __init__(self, device, hub: BestinHub):
         """Initialize the climate."""
         super().__init__(device, hub)
-        self._supported_features = (
-            ClimateEntityFeature.TARGET_TEMPERATURE | 
-            ClimateEntityFeature.TURN_ON | 
+        # preset_modes 가 device state 에 있으면 PRESET_MODE 기능을 광고합니다.
+        # If preset_modes is exposed in the device state, advertise the
+        # PRESET_MODE feature so HA shows the standard preset dropdown.
+        feats = (
+            ClimateEntityFeature.TARGET_TEMPERATURE |
+            ClimateEntityFeature.TURN_ON |
             ClimateEntityFeature.TURN_OFF
         )
+        if isinstance(self._device_info.state, dict) and self._device_info.state.get(
+            "preset_modes"
+        ):
+            feats |= ClimateEntityFeature.PRESET_MODE
+        self._supported_features = feats
         self._hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
         self._version_exists = getattr(hub.api, CONF_VERSION, False)
 
@@ -111,17 +119,22 @@ class BestinClimate(BestinDevice, ClimateEntity):
             await self.enqueue_command(mode=hvac_mode == HVACMode.HEAT)
 
     @property
-    def preset_mode(self):
-        """Return the current preset mode, e.g., home, away, temp.
-        Requires ClimateEntityFeature.PRESET_MODE.
-        """
+    def preset_mode(self) -> str | None:
+        """Return the current preset mode (e.g., comfort, eco, sleep)."""
+        if isinstance(self._device_info.state, dict):
+            return self._device_info.state.get("preset_mode")
+        return None
 
     @property
-    def preset_modes(self) -> list:
-        """Return the list of available preset modes."""
+    def preset_modes(self) -> list[str] | None:
+        """Return the list of available preset modes (or None if unsupported)."""
+        if isinstance(self._device_info.state, dict):
+            return self._device_info.state.get("preset_modes")
+        return None
 
-    async def async_set_preset_mode(self, preset_mode):
-        """Set new target preset mode."""
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Set new target preset mode (forwarded to the gateway)."""
+        await self.enqueue_command(preset_mode=preset_mode)
 
     @property
     def hvac_action(self):

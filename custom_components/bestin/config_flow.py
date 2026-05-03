@@ -499,22 +499,6 @@ class OptionsFlowHandler(OptionsFlow):
                             CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
                         ),
                     ): cv.positive_int,
-                    vol.Required(
-                        "pwm_mode",
-                        default=self.entry.options.get("pwm_mode", "off"),
-                    ): selector(
-                        {
-                            "select": {
-                                "options": [
-                                    {"value": "off", "label": "꺼짐 / Off (passthrough)"},
-                                    {"value": "eco", "label": "Eco (20분 사이클 / 20-min cycle)"},
-                                    {"value": "comfort", "label": "Comfort (15분 사이클 / 15-min cycle)"},
-                                    {"value": "boost", "label": "Boost (10분 사이클 / 10-min cycle)"},
-                                ],
-                                "mode": "dropdown",
-                            }
-                        }
-                    ),
                 }
             )
         if CONF_SESSION not in self.entry.data:

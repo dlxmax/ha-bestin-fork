@@ -105,70 +105,135 @@ i-parklife.com 디렉터리에서 60여 개 단지가 자동으로 조회됩니�
 - 도어락은 상태만 노출됩니다. 앱 자체가 원격 잠금/해제를 제공하지 않으므로 통합도 동일합니다.  
   *Door locks are status-only because the app itself does not expose remote lock/unlock.*
 
-## PWM 제어 / PWM control _(신규 / new)_
+## PWM 제어 / PWM control
 
-기본 월패드 온도조절기는 객실별 이진 on/off 만 제공하므로, 바닥난방의 큰 열관성에 비해 제어가 너무 거칠어 과열·미달이 반복되기 쉽습니다. v1.4.0 부터 통합 옵션에서 **PWM 모드** 를 활성화하면 소프트웨어가 분 단위 사이클로 비례 제어를 적용합니다.  
-*The wallpad's per-room thermostat exposes only binary on/off, which is too coarse for a high-thermal-mass radiant floor — overshoot and undershoot are common. From v1.4.0 you can enable a **PWM mode** in the integration options; the software then layers a minutes-scale proportional cycle on top of the wallpad's on/off.*
+월패드의 객실별 이진 on/off + setpoint 만으로는 바닥난방의 큰 열관성에 비해 너무 거친 제어가 됩니다. v1.4 부터 각 온도조절기가 표준 HA **프리셋 (preset_mode)** 을 객실별로 노출합니다. iPark 스마트홈 앱 옵션에서는 프리셋이 슬로우 PWM 사이클을 함께 트리거합니다 (다른 게이트웨이는 setpoint 만 변경됩니다).  
+*The wallpad's per-room binary on/off + setpoint is too coarse for high-thermal-mass radiant floors. From v1.4, each thermostat exposes the standard HA **preset_mode** dropdown per room. On the iPark Smarthome App option, presets also trigger a slow PWM cycle (on the other gateways, presets just change the setpoint).*
 
-### 사용 방법 / Enabling
+### 핵심 결론 / Key takeaways
 
-1. **설정 → 기기 및 서비스 → BESTIN → 설정** 으로 들어갑니다.
-   *Go to **Settings → Devices & Services → BESTIN → Configure**.*
-2. **PWM 모드 / PWM mode** 항목에서 다음 중 하나를 선택합니다:
-   *Pick one of the **PWM mode** options:*
+1. **프리셋은 표준 HA 인터페이스입니다** — Climate 카드의 'Preset' 드롭다운, `climate.set_preset_mode` 서비스, 음성 명령 ("거실을 외출 모드로") 모두 지원합니다.  
+   *Presets are standard HA — climate-card dropdown, `climate.set_preset_mode` service, and voice commands ("set the living room to away mode") all just work.*
+2. **객실마다 다른 프리셋 가능** — 침실은 Sleep, 거실은 Comfort.  
+   *Per-room presets — bedroom on Sleep while living room stays on Comfort.*
+3. **휴가 일정은 서비스 호출로** — `bestin.set_vacation_window` 가 시작·복귀 시각을 받아 자동으로 프리셋을 전환합니다.  
+   *Vacation date scheduling via `bestin.set_vacation_window` — pass start + end datetimes; presets transition automatically.*
+4. **솔직한 경제성**: PWM 의 순수한 절감 효과는 5-15% 범위, 통상 8-12% 정도. 핵심 절감 동력은 PWM 자체보다 **PWM 덕분에 야간 setback 을 실용적으로 사용할 수 있게 되는 점** 입니다. 자세한 수치는 §11 (로컬 연구 파일) 참조.  
+   *Honest economics: pure PWM savings land at 5-15 % (typically 8-12 %). The bigger lever is **PWM making night setback practical** — it's the setback that saves money, PWM just removes the slow-recovery pain. Full numbers in research file §11.*
 
-   | 모드 / Mode | 사이클 / Cycle | 비례 대역 / Band | 용도 / Use |
-   |---|---|---|---|
-   | **꺼짐 / Off** | — | — | 기본 — 월패드 그대로 (PWM 없음). / Default — passthrough to wallpad, no PWM. |
-   | **Eco** | 20 분 / min | ±2.5°C | 저전력 / 야간 셋백. / Energy-saving / night setback. |
-   | **Comfort** | 15 분 / min | ±2.0°C | 일반 사용 권장. / Recommended for everyday use. |
-   | **Boost** | 10 분 / min | ±1.5°C | 빠른 가열 (귀가 직전, 외출 모드 해제 후). / Quick warm-up after vacancy. |
+### 프리셋 / Presets
 
-3. PWM 활성화 후, HA 의 climate 엔티티에서 평소처럼 setpoint 를 설정하면 PWM 컨트롤러가 사용자의 의도값을 유지하면서 월패드의 on/off 를 일정 듀티로 토글합니다.  
-   *Once enabled, set the climate setpoint in HA as usual; the PWM controller holds the user's true setpoint and toggles the wallpad on/off at the appropriate duty cycle.*
+| 프리셋 / Preset | 셋포인트 / Setpoint | PWM 사이클 / Cycle (iparkapp only) | 용도 / Use case | 절감 (vs 22°C 항시) / Savings vs 22°C continuous |
+|---|---|---|---|---|
+| **None** _(기본 / default)_ | 사용자 지정 / user | — (passthrough) | PWM 없음. 월패드 기본 동작. / No PWM; wallpad default. | 0 % |
+| **Comfort / 쾌적** | 22°C | 15 분 / min | 활동 시간대. / Active occupancy. | baseline |
+| **Eco / 에코** | 20°C | 20 분 / min | 절감 우선. / Cost-conscious. | -3 to -5 % |
+| **Sleep / 수면** | 17°C | 25 분 / min | 야간 8-10 시간. 8시간 OFF 보다 안전 + 효율. / Overnight 8-10 h. Safer & more efficient than full-off. | -10 to -15 % |
+| **Away / 외출** | 16°C | 25 분 / min | 출근·짧은 외출. / Work day or short trip. | -8 to -12 % |
+| **Vacation / 휴가** | 13°C | 30 분 / min | 다일 부재 (7-14일). / Multi-day absence. | -20 to -30 % |
+| **Frost / 결빙방지** | 9°C | 30 분 / min | 장기 미사용 / 동결방지. / Long unoccupied / pipe protection. | -40 to -50 % |
+| **Boost** | 23°C | 10 분 / min | 휴가 복귀 후 빠른 가열. **상시 사용 비권장** (밸브 마모). / Post-vacation recovery. **Not for daily use** (valve wear). | n/a (recovery) |
 
-### 시스템 LPM 밸브 권장 설정 / Recommended system LPM valve setting
+> **8시간 완전 OFF 습관에 대해 / On the "8 hours fully off" habit:** 안전하지만 최적은 아닙니다. 바닥이 너무 식으면 아침 회복 에너지가 절감을 상쇄하고, 차가운 바닥에 결로가 생길 수 있습니다. **Sleep 모드 (17°C)** 가 같은 8시간 동안 더 적은 에너지를 쓰면서 아침에 빠르게 회복합니다.  
+> *Safe but not optimal. Letting the floor get too cold means morning rebound energy cancels the savings, and the cold floor can develop condensation. **Sleep mode (17 °C)** uses less energy over the same 8 hours and recovers faster in the morning.*
 
-본 통합이 설치된 단지의 일반적인 구성은 단지 1개의 시스템 전체용 수동 유량 밸브 (LPM) 가 모든 객실의 분배기 앞단에 있습니다. PWM 활성화 시 권장 설정:  
-*Most ondol systems with this integration have a single manual system-wide flow valve (LPM) upstream of all room manifolds. When enabling PWM, the recommended adjustment:*
+### 시스템 LPM 밸브 권장 설정 / Recommended system LPM valve setting **(중요 / important)**
 
-- **기존 'low flow' 위치보다 약 3–4 배 열기**, 또는 60–80 m² 5객실 가정 기준 **8–12 LPM 부근** (밸브 표시가 LPM 이 아닌 단순 단계라면 'high' 위치 부근).  
-  *Open the valve to **roughly 3–4× your old "low" setting**, or about **8–12 LPM** for a 60–80 m² 5-room apartment (or near the "high" mark if your valve isn't LPM-labelled).*
-- **이유:** PWM 은 동일 에너지를 더 짧은 펄스로 전달합니다. 펄스 동안의 유량 = (연속 운전 유량) ÷ (평균 듀티). 평균 듀티가 25–30% 이면 3–4× 가 등가 유량입니다.  
-  *Why: PWM compresses the same total energy into shorter pulses. Per-pulse flow = (continuous flow) ÷ (average duty). For an average duty of 25–30%, 3–4× is the equivalent flow.*
-- **확인 방법 (커미셔닝):** Comfort 모드로 추운 주말을 지나며 객실별 평균 듀티와 온도 변동을 관찰. 평균 듀티 ≥ 80% & 셋포인트 미달 → 더 열기. 평균 듀티 ≤ 30% & 과열 → 다시 조이기.  
-  *Commissioning: run a cold weekend on Comfort and watch per-room average duty + temperature variance. Average duty ≥ 80% AND undershoot → open more. Average duty ≤ 30% AND overshoot → close down.*
+본 통합이 설치된 단지의 일반적인 구성은 단지 1개의 시스템 전체용 수동 유량 밸브 (LPM, 분당 리터) 가 모든 객실 분배기 앞단에 있습니다. **PWM 사용 시 이 밸브를 다시 조정해야 합니다.**  
+*Most ondol systems have a single manual system-wide flow valve (LPM, litres-per-minute) upstream of all room manifolds. **When using PWM you must re-adjust it.***
 
-자세한 분석은 `temp/research/ondol_pwm_research.md` 의 §9 참조 (gitignored — 로컬에서만 확인 가능).  
-*Full analysis is in `temp/research/ondol_pwm_research.md` §9 (gitignored — local only).*
+- **기존 'low flow' 위치보다 약 3-4 배 열기** — 또는 60-80 m² 5객실 아파트 기준 **8-12 LPM 부근**. 밸브 표시가 LPM 이 아닌 단순 단계라면 'high' 위치 근처.  
+  *Open it to **roughly 3-4× your old "low" position**, or about **8-12 LPM** for a 60-80 m² 5-room apartment. Near 'high' if the valve isn't LPM-marked.*
+- **왜:** PWM 은 동일 에너지를 더 짧은 펄스로 전달합니다. 펄스 동안의 유량 = 연속 운전 유량 ÷ 평균 듀티. 평균 듀티가 25-30 % 면 3-4× 가 등가 유량입니다.  
+  *Why: PWM compresses the same total energy into shorter pulses; per-pulse flow = continuous-flow ÷ average duty. At 25-30 % average duty, 3-4× is the equivalent flow.*
+- **커미셔닝:** Comfort (또는 Sleep) 로 추운 주말을 지내며 객실별 평균 듀티와 온도 변동을 HA 히스토리로 관찰. 평균 듀티 ≥ 80 % 인데 셋포인트 미달이면 → 더 열기. 평균 듀티 ≤ 30 % 인데 과열이면 → 다시 조이기.  
+  *Commissioning: run a cold weekend on Comfort (or Sleep) and watch the per-room average duty + temperature variance in HA history. Average duty ≥ 80 % AND undershoot → open further. Average duty ≤ 30 % AND overshoot → close down.*
 
-### 알고리즘 — Algorithm (참고 / for reference)
+LPM 밸브 위치를 잘못 설정하면 PWM 의 효과가 크게 떨어집니다. 통합 설정 화면 (Settings → Devices & Services → BESTIN → Configure) 의 안내문에도 같은 권장사항이 있습니다.  
+*Wrong LPM position significantly degrades PWM effectiveness. The same advice appears in the integration's options-flow description.*
 
-연구된 비례 제어식 — researched proportional formula:
+### 휴가 일정 서비스 / Vacation-window service
+
+```yaml
+service: bestin.set_vacation_window
+data:
+  # 생략하면 BESTIN 의 모든 climate 엔티티에 적용됩니다.
+  # Omit to apply to every BESTIN climate entity.
+  entity_id:
+    - climate.bestin_temper_1
+    - climate.bestin_temper_2
+  start: "2026-12-20 18:00:00"
+  end: "2026-12-27 19:00:00"
+  pre_warm_hours: 2          # 복귀 2시간 전부터 Boost (선택). / Boost N hours before return (optional).
+  vacation_preset: vacation  # 휴가 중 모드 (기본 vacation). / Mode during the trip.
+  recovery_preset: boost     # 복귀 직전 모드 (기본 boost). / Mode for the recovery phase.
+  return_preset: comfort     # 복귀 후 모드 (기본 comfort). / Mode after return.
+```
+
+서비스는 절대 시각 트리거를 사용하므로 호출 후 다른 자동화가 필요하지 않습니다. 다만 HA 가 **재시작되면 예약이 사라지므로** 재시작 후 다시 호출하거나, automation 의 trigger 로 등록해 두세요.  
+*The service uses absolute-time triggers, so no further automation is needed after the call. **HA restart clears the schedule** — re-invoke after restart or register the call as an automation trigger.*
+
+### 야간 setback 자동화 예시 / Sample night-setback automation
+
+```yaml
+automation:
+  - alias: "온돌 야간 모드 / Ondol night mode"
+    trigger: { platform: time, at: "23:00:00" }
+    action:
+      service: climate.set_preset_mode
+      target:
+        entity_id:
+          - climate.bestin_temper_1   # main bedroom
+          - climate.bestin_temper_2   # second bedroom
+      data: { preset_mode: sleep }
+
+  - alias: "온돌 아침 가열 / Ondol morning warm-up"
+    trigger: { platform: time, at: "06:30:00" }
+    action:
+      service: climate.set_preset_mode
+      target:
+        entity_id: climate.bestin_temper_3   # main living area
+      data: { preset_mode: boost }
+
+  - alias: "온돌 아침 일반 모드 / Ondol morning normal"
+    trigger: { platform: time, at: "07:15:00" }
+    action:
+      service: climate.set_preset_mode
+      target:
+        entity_id:
+          - climate.bestin_temper_1
+          - climate.bestin_temper_2
+          - climate.bestin_temper_3
+      data: { preset_mode: comfort }
+```
+
+### 알고리즘 / Algorithm (참고 / reference)
+
+iparkapp 게이트웨이에서 활성 프리셋이 PWM 을 트리거할 때:
 
 ```
-temp_error = setpoint - current_temp
+temp_error = user_setpoint - current_temp
 duty% = clamp(0, 100, (temp_error / proportional_band) × 100)
 if 0 < temp_error < 0.5°C and duty > 50%:
-    duty *= 0.8   # anti-overshoot near setpoint
+    duty *= 0.8   # 셋포인트 근접 시 듀티 감소 / anti-overshoot near setpoint
 ```
 
-추가 제약 — additional constraints:
-- **최소 on 시간 / minimum on:** 2분 — 액추에이터·보일러 보호. *valve/boiler protection.*
-- **최소 off 시간 / minimum off:** 30–90초 (모드별) — 바닥 열관성이 안정될 시간. *let floor mass settle.*
-- **데드밴드 / deadband:** 듀티 변화 5–8% 미만이면 명령 미전송 — 채터 방지. *no command unless duty changes by ≥5–8%.*
+추가 제약 / additional constraints: 프리셋별 최소 on / off 시간 (밸브·보일러 보호), 듀티 변화 데드밴드 (채터 방지). 자세한 수치는 `pwm.py` 의 `PRESET_PROFILES` 참조.  
+*See `PRESET_PROFILES` in `pwm.py` for the exact numbers.*
 
-근거: IEA ECES Task 32 (2018), ASHRAE HVAC Applications (2019), EN 12531, VDI 6030, OJ Electronics OCD5, Honeywell Bulletin 41-353, Uponor Design Guide (2020). 인용은 로컬 연구 파일 참조.  
-*Sources: IEA ECES Task 32 (2018), ASHRAE HVAC Applications (2019), EN 12531, VDI 6030, OJ Electronics OCD5, Honeywell Bulletin 41-353, Uponor Design Guide (2020). See the local research file for full citations.*
+근거 / Sources: IEA ECES Task 32 (2018), ASHRAE HVAC Applications (2019), EN 12531, VDI 6030, OJ Electronics OCD5, Honeywell Bulletin 41-353, Uponor Design Guide (2020). 전체 인용 + 경제성 분석 + 밸브 수명 분석은 로컬 연구 파일 (`temp/research/ondol_pwm_research.md`, gitignored) 참조.  
+*Full citations + economics + valve-lifetime analysis in the local research file (`temp/research/ondol_pwm_research.md`, gitignored).*
 
 ### 알려진 제한 / Known caveats
 
-- **월패드 setpoint 가 일시적으로 조작됩니다.** PWM ON 펄스 동안 월패드 화면에는 사용자가 설정한 값보다 높은 setpoint 가 잠시 표시됩니다 (강제 발열을 위해 필요). HA UI 는 항상 사용자의 실제 의도값을 보여줍니다.  
-  *The wallpad's setpoint is momentarily manipulated. During the ON pulse the wallpad face shows a setpoint elevated above your true target (needed to force the wallpad to call for heat). HA always shows your real intended value.*
-- **HA 재시작 시 setpoint 재초기화.** PWM 컨트롤러는 메모리에만 상태를 보관합니다. 재시작 후 첫 폴링에서 월패드의 (조작된) 값을 채택할 수 있으니, 재시작 직후 HA 에서 한 번 setpoint 를 다시 지정해 주세요.  
-  *PWM controller state lives in memory only. After an HA restart it may briefly adopt the wallpad's (manipulated) echo as its initial setpoint — re-set the desired temperature in HA after restart.*
-- **다른 가족 구성원의 월패드 직접 조작.** 누가 월패드 패널 앞에서 setpoint 를 바꾸면 PWM 이 그것을 다음 폴링에서 흡수합니다. 의도된 값이 아니면 HA 에서 다시 설정해 주세요.  
-  *If someone changes the setpoint at the wallpad panel directly, the PWM controller will adopt it on the next poll — re-set in HA if not desired.*
+- **월패드 setpoint 가 일시적으로 조작됩니다 (PWM 활성 객실 한정).** ON 펄스 동안 월패드 화면에는 사용자 값보다 높은 setpoint 가 잠시 표시됩니다 — 월패드의 내장 임계값을 강제로 통과시키기 위함입니다. HA UI 는 항상 사용자의 실제 의도값을 보여줍니다.  
+  *Wallpad setpoint is momentarily manipulated on PWM-active rooms — during the ON pulse the wallpad face shows a setpoint elevated above your true target (forces the wallpad's onboard threshold to call for heat). HA always displays your real value.*
+- **HA 재시작.** PWM 컨트롤러 상태는 메모리에만 보관됩니다. 재시작 후 첫 폴링에서 월패드의 (조작된) echo 를 임시로 채택할 수 있으니, 재시작 직후 한 번 프리셋이나 setpoint 를 다시 적용해 주세요.  
+  *HA restart clears in-memory PWM state. Re-apply preset or setpoint once after restart.*
+- **다른 가족이 월패드를 직접 조작하면**, 다음 폴링에서 그 값이 PWM 컨트롤러로 흡수됩니다. 의도된 값이 아니면 HA 에서 다시 설정.  
+  *If someone changes the setpoint at the wallpad directly, the next poll adopts it. Re-set in HA if not desired.*
+- **밸브 수명 vs 절감.** PWM 은 분배기 액추에이터 사이클을 약 5-10 배 늘려 통상 수명을 단축합니다 (대략 약 5-8년). 본 통합의 기본값 (None — PWM 비활성) 을 유지하면 마모 가속이 없습니다. 자세한 분석은 연구 파일 §10.  
+  *PWM accelerates manifold actuator cycling ~5-10×, shortening typical life to roughly 5-8 years. Default (None — PWM off) avoids the wear. Full analysis in research file §10.*
 
 ## 디버깅 / Debugging
 

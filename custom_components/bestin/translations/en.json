@@ -82,12 +82,11 @@
         "step": {
             "init": {
                 "title": "Adjust User Options",
-                "description": "For the iPark Smarthome App option, the 'PWM mode' field enables slow software PWM control of ondol thermostats. See the [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control-신규--new) for details and recommended LPM valve settings.",
+                "description": "Thermostats expose the standard HA presets (Comfort / Eco / Sleep / Away / Vacation / Frost / Boost) per room. On the iPark Smarthome App option these also engage a software PWM cycle. **When using PWM, open your apartment's system-wide LPM valve to roughly 3-4× its old 'low' position (or to 'high' if unmarked).** Schedule vacation windows via the `bestin.set_vacation_window` service. See the [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control) for details.",
                 "data": {
                     "max_send_retry": "Max Send Retry",
                     "packet_viewer": "Packet Viewer",
-                    "scan_interval": "Scan Interval (minutes)",
-                    "pwm_mode": "PWM mode (heating)"
+                    "scan_interval": "Scan Interval (minutes)"
                 }
             }
         }

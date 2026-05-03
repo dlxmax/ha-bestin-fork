@@ -102,8 +102,13 @@ iPark 스마트홈 앱 / 클라우드 옵션은 별도의 하드웨어가 필요
 | 가스 / Gas valve | O | 닫기 전용 (앱 동일) / Close-only (matches the app) |
 | 도어락 / Door lock | O | 상태 표시만 (앱 동일) / Status only (matches the app) |
 | 난방 / Heating | O | 객실 + 추가 비제어 난방 온도 센서 (있는 경우, 정확한 의미는 단지마다 상이) / Per-room + an extra uncontrollable heat-temperature sensor where the wallpad reports more 'rooms' than it has thermostats (exact meaning varies by complex) |
-| 외출 모드 / Away mode | O | iPark 스마트홈 앱 옵션 한정 / iPark Smarthome App option only |
+| 외출 모드 / Away mode | O | iPark 스마트홈 앱 옵션 한정 (별도 entity) / iPark Smarthome App option only (separate entity) |
 | 에너지 모니터링 / Energy monitoring | O | 전기 / 가스 / 난방 / 온수 / 수도 — iPark 스마트홈 앱 옵션 한정 / Electric / Gas / Heat / Hot water / Water — iPark Smarthome App option only |
+| 표준 HA 프리셋 (난방) / Standard HA presets (heating) | O | Comfort / Eco / Sleep / Away / Vacation / Frost / Boost — 객실별 / per-room. iPark 스마트홈 앱 옵션에서는 슬로우 PWM 사이클이 함께 적용됩니다 (다른 게이트웨이는 setpoint 만 변경). v1.4.0+. / On the iPark Smarthome App option these also engage software PWM; on other gateways they just change the setpoint. v1.4.0+. |
+| 휴가 일정 서비스 / Vacation-window service | O | `bestin.set_vacation_window` — start / end 시각으로 자동 프리셋 전환. v1.4.1+. / Auto-transition presets between start and end datetimes. v1.4.1+. |
+
+> **PWM 사용 시 LPM 밸브 주의 / LPM-valve note when using PWM (iparkapp gateway):** 단지 시스템 LPM 유량 밸브를 기존 'low' 위치보다 약 3-4 배 (또는 'high' 위치) 로 열어두세요. 자세한 이유와 커미셔닝 절차는 [iPark 스마트홈 앱 가이드 PWM 섹션](./guide/iparkapp.md#pwm-제어--pwm-control) 참조.  
+> *Open your apartment's system-wide LPM flow valve to roughly 3-4× its old "low" position (or "high" if unmarked). Full rationale + commissioning steps in the [iPark Smarthome App guide PWM section](./guide/iparkapp.md#pwm-제어--pwm-control).*
 
 - 추가 기기·속성이 필요하면 이슈 탭에 등록해 주세요. / *Open an issue if your household has devices not in the table above.*
 - IPARK 스마트홈 클라우드 연동은 1.2.0 부터 지원됩니다. / *IPARK Smart Home cloud integration is supported from v1.2.0 onward.*

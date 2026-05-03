@@ -299,7 +299,20 @@ class BestinController:
         room_id = int(parts[2])
         pos_id = 0
         sub_type = None
-        
+
+        # 표준 HA preset_mode → 정규 setpoint 송신 (PWM 은 iparkapp 한정).
+        # Standard HA preset_mode → push the canonical setpoint to the
+        # wallpad. PWM cycling itself stays iparkapp-only for now.
+        if kwargs and ("preset_mode" in kwargs or "preset" in kwargs):
+            from .pwm import PRESET_PROFILES
+            preset = kwargs.get("preset_mode") or kwargs.get("preset")
+            profile = PRESET_PROFILES.get(preset)
+            if profile is None:
+                LOGGER.warning(f"Unknown preset {preset!r} ignored")
+                return
+            value = profile.canonical_setpoint_c
+            sub_type = SERVICE_SET_TEMPERATURE
+            kwargs = None  # handled
         if kwargs:
             sub_type, value = next(iter(kwargs.items()))
         if len(parts) == 4 and not parts[3].isdigit():
@@ -415,10 +428,14 @@ class BestinController:
         current_temperature = int.from_bytes(packet[8:10], byteorder="big") / 10.0
         hvac_mode = HVACMode.HEAT if is_heating else HVACMode.OFF
 
+        from .pwm import PRESET_MODES_DEFAULT
         thermostat_state = {
             ATTR_HVAC_MODE: hvac_mode,
             SERVICE_SET_TEMPERATURE: target_temperature,
-            ATTR_CURRENT_TEMPERATURE: current_temperature
+            ATTR_CURRENT_TEMPERATURE: current_temperature,
+            # 표준 HA preset_mode 지원 (PWM 없이 setpoint 만 변경).
+            # Standard HA preset_mode (setpoint-only; no PWM cycling on this gateway).
+            "preset_modes": list(PRESET_MODES_DEFAULT),
         }
         return room_id, thermostat_state
     

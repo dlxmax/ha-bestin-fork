@@ -1,6 +1,6 @@
 """온돌 슬로우 PWM 제어기 — Slow PWM controller for Korean ondol thermostats.
 
-월패드의 이진 on/off 와 setpoint 만으로는 바닥난방의 열관성에 비해 너무 거친
+월패드의 이진 on/off 와 setpoint 만으로는 바닥난방의 큰 열관성에 비해 너무 거친
 제어가 됩니다. 본 모듈은 minutes 단위 사이클로 부드러운 비례 제어를 적용합니다.
 파라미터는 ``temp/research/ondol_pwm_research.md`` 의 연구 결과 (IEA / ASHRAE /
 EN / VDI / OJ Electronics 등) 에서 가져왔습니다.
@@ -12,13 +12,12 @@ all parameters are sourced from the research archived at
 OJ Electronics, Honeywell, Uponor — see the doc for citations).
 
 설계 원칙 / Design principles:
-  - 비례 제어 (P) + 데드밴드 — proportional control with deadband (PID 의 I/D 항은
-    배수 시간이 길고 노이즈가 많은 바닥난방에 비효율).
-  - 사이클당 최소 on / off 시간 — minimum on/off times per cycle (액추에이터·보일러
-    수명 보호).
+  - 비례 제어 (P) + 데드밴드 — proportional control with deadband.
+  - 사이클당 최소 on / off 시간 — minimum on/off times per cycle.
   - 셋포인트 근접 시 듀티 감소 — anti-overshoot duty reduction near setpoint.
-  - 객실 간 phase staggering 없음 — no inter-room phase staggering (5객실 시스템에서는
-    P-제어가 자체 보정함; 연구 §9 참조).
+  - 객실별 프리셋 — per-room preset (each room may run a different profile).
+  - 게이트웨이 독립 — gateway-agnostic: callers inject a send-command callback,
+    so iparkapp / center / controller can all use the same controller.
 """
 
 from __future__ import annotations
@@ -26,65 +25,104 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any, Awaitable, Callable
 
 from .const import LOGGER
 
-if TYPE_CHECKING:
-    from .iparkapp import BestinIparkAppAPI
-
 
 # ---------------------------------------------------------------------------
-# 프로파일 — Profiles (researched values; see PROTOCOL_FINDINGS / research file)
+# 표준 HA preset_mode 이름 — Standard HA preset_mode names.
 # ---------------------------------------------------------------------------
+# Aligned with the canonical names HA's climate component recognises across
+# vendors (Nest, EvoHome, Ecobee, etc.) so users get a familiar dropdown.
+
+PRESET_NONE = "none"          # passthrough; no PWM, wallpad's own logic only
+PRESET_COMFORT = "comfort"    # active occupancy
+PRESET_ECO = "eco"            # cost-conscious
+PRESET_SLEEP = "sleep"        # overnight setback
+PRESET_AWAY = "away"          # short trip / work day
+PRESET_VACATION = "vacation"  # multi-day absence
+PRESET_FROST = "frost"        # long-term unoccupied / pipe protection
+PRESET_BOOST = "boost"        # post-vacation recovery (reserve for occasional)
+
+PRESET_MODES_DEFAULT: tuple[str, ...] = (
+    PRESET_NONE,
+    PRESET_COMFORT,
+    PRESET_ECO,
+    PRESET_SLEEP,
+    PRESET_AWAY,
+    PRESET_VACATION,
+    PRESET_FROST,
+    PRESET_BOOST,
+)
+
 
 @dataclass(frozen=True)
-class PwmProfile:
-    """PWM 프로파일 — One PWM profile (Eco / Comfort / Boost)."""
+class PresetProfile:
+    """프리셋별 PWM + 셋포인트 — Profile for one preset.
+
+    ``cycle_period_s == 0`` means "no PWM" — the callback is not invoked on a
+    cycle; the controller just publishes the canonical setpoint to the
+    gateway and lets the wallpad's onboard logic handle on/off.
+    """
 
     name: str
-    cycle_period_s: int          # 한 사이클 길이 (초) — full cycle length
-    proportional_band_c: float   # 비례 대역 (°C) — temp error → 100% duty span
-    min_on_s: int                # 최소 on 시간 — minimum on time
-    min_off_s: int               # 최소 off 시간 — minimum off time
-    deadband_pct: float          # 듀티 변화 데드밴드 — duty change threshold
+    canonical_setpoint_c: float    # the setpoint this preset maps to
+    cycle_period_s: int             # 0 = no PWM (passthrough)
+    proportional_band_c: float
+    min_on_s: int
+    min_off_s: int
+    deadband_pct: float
     overshoot_guard_c: float = 0.5
     overshoot_factor: float = 0.8
 
 
-# 'off' 는 PWM 비활성 — 'off' means PWM disabled (passthrough to wallpad).
-# 다른 키 이름은 HA preset_mode 와 옵션 플로우 양쪽에서 식별자로 사용됩니다.
-# Other keys are used as identifiers in both HA preset_mode and the options flow.
-PWM_PROFILES: dict[str, PwmProfile] = {
-    "eco": PwmProfile(
-        name="eco",
-        cycle_period_s=20 * 60,
-        proportional_band_c=2.5,
-        min_on_s=120,
-        min_off_s=90,
-        deadband_pct=8.0,
+# 프리셋 → 프로파일. 연구 §10.7 + §12 의 권장값에서 가져옴.
+# Profiles drawn from research §10.7 + §12 recommended defaults.
+PRESET_PROFILES: dict[str, PresetProfile] = {
+    PRESET_NONE: PresetProfile(
+        name=PRESET_NONE, canonical_setpoint_c=22.0,
+        cycle_period_s=0,  # PWM disabled
+        proportional_band_c=0.0, min_on_s=0, min_off_s=0, deadband_pct=0.0,
     ),
-    "comfort": PwmProfile(
-        name="comfort",
-        cycle_period_s=15 * 60,
-        proportional_band_c=2.0,
-        min_on_s=120,
-        min_off_s=60,
-        deadband_pct=5.0,
+    PRESET_COMFORT: PresetProfile(
+        name=PRESET_COMFORT, canonical_setpoint_c=22.0,
+        cycle_period_s=15 * 60, proportional_band_c=2.0,
+        min_on_s=120, min_off_s=60, deadband_pct=5.0,
     ),
-    "boost": PwmProfile(
-        name="boost",
-        cycle_period_s=10 * 60,
-        proportional_band_c=1.5,
-        min_on_s=120,
-        min_off_s=30,
-        deadband_pct=3.0,
+    PRESET_ECO: PresetProfile(
+        name=PRESET_ECO, canonical_setpoint_c=20.0,
+        cycle_period_s=20 * 60, proportional_band_c=2.5,
+        min_on_s=120, min_off_s=90, deadband_pct=8.0,
+    ),
+    PRESET_SLEEP: PresetProfile(
+        name=PRESET_SLEEP, canonical_setpoint_c=17.0,
+        cycle_period_s=25 * 60, proportional_band_c=3.0,
+        min_on_s=120, min_off_s=120, deadband_pct=10.0,
+    ),
+    PRESET_AWAY: PresetProfile(
+        name=PRESET_AWAY, canonical_setpoint_c=16.0,
+        cycle_period_s=25 * 60, proportional_band_c=3.0,
+        min_on_s=120, min_off_s=120, deadband_pct=10.0,
+    ),
+    PRESET_VACATION: PresetProfile(
+        name=PRESET_VACATION, canonical_setpoint_c=13.0,
+        cycle_period_s=30 * 60, proportional_band_c=4.0,
+        min_on_s=120, min_off_s=180, deadband_pct=15.0,
+    ),
+    PRESET_FROST: PresetProfile(
+        name=PRESET_FROST, canonical_setpoint_c=9.0,
+        cycle_period_s=30 * 60, proportional_band_c=5.0,
+        min_on_s=180, min_off_s=180, deadband_pct=20.0,
+    ),
+    PRESET_BOOST: PresetProfile(
+        name=PRESET_BOOST, canonical_setpoint_c=23.0,
+        cycle_period_s=10 * 60, proportional_band_c=1.5,
+        min_on_s=120, min_off_s=30, deadband_pct=3.0,
     ),
 }
 
-PWM_OFF = "off"
-PWM_VALID_MODES = (PWM_OFF, "eco", "comfort", "boost")
-DEFAULT_PWM_MODE = PWM_OFF
+
 TICK_INTERVAL_S = 30
 
 
@@ -94,42 +132,42 @@ TICK_INTERVAL_S = 30
 
 @dataclass
 class RoomPwmState:
-    """객실 PWM 상태 — Per-room state tracked by the controller."""
+    """객실 PWM 상태 — Per-room state (keyed by room number)."""
 
     room: int
-    setpoint: float = 22.0       # 사용자 의도 setpoint (HA 에서 설정)
-    current_temp: float = 0.0    # 폴링으로 갱신 — updated from polling
+    preset: str = PRESET_NONE
+    user_setpoint: float = 22.0
+    current_temp: float = 0.0
     target_duty_pct: float = 0.0
     last_sent_phase: bool | None = None  # True = on, False = off, None = never
     cycle_started_at: datetime = field(default_factory=datetime.now)
     phase_started_at: datetime = field(default_factory=datetime.now)
-    enabled: bool = True
 
 
-# ---------------------------------------------------------------------------
-# 컨트롤러 — Controller
-# ---------------------------------------------------------------------------
+# Type alias for the gateway-supplied send callback.
+# 콜백은 (room, ctrl_action_string) 을 받아 월패드에 비동기로 송신합니다.
+# Signature: (room: int, ctrl_action: str) -> awaitable; ctrl_action is e.g.
+# "on/27" or "off/22" — the same string the wallpad's req_ctrl_action expects.
+SendCommand = Callable[[int, str], Awaitable[None]]
+
 
 class PwmController:
     """객실별 비례 PWM 컨트롤러 — Per-room proportional PWM controller.
 
-    한 인스턴스가 모든 객실을 관리합니다. ``BestinIparkAppAPI`` 가 PWM 활성화 시
-    인스턴스화하며, 폴링·명령 경로에 후크되어 동작합니다.
+    한 인스턴스가 모든 객실을 관리하며 객실마다 별개의 프리셋을 가질 수 있습니다.
+    게이트웨이별 송신 로직은 ``send_command`` 콜백에 주입됩니다.
 
-    A single instance manages all rooms. ``BestinIparkAppAPI`` instantiates one
-    when PWM is enabled and routes polling reads + control writes through it.
+    A single instance manages all rooms; each room can be on its own preset.
+    Gateway-specific send logic is injected via the ``send_command`` callback.
     """
 
     def __init__(
         self,
-        api: "BestinIparkAppAPI",
-        profile_key: str,
+        send_command: SendCommand,
+        on_state_change: Callable[[int, RoomPwmState], None] | None = None,
     ) -> None:
-        if profile_key == PWM_OFF or profile_key not in PWM_PROFILES:
-            raise ValueError(f"PwmController requires an active profile, got {profile_key!r}")
-        self.api = api
-        self.profile_key = profile_key
-        self.profile: PwmProfile = PWM_PROFILES[profile_key]
+        self._send = send_command
+        self._on_state_change = on_state_change
         self.rooms: dict[int, RoomPwmState] = {}
         self._stop_event: asyncio.Event = asyncio.Event()
         self._task: asyncio.Task | None = None
@@ -143,8 +181,7 @@ class PwmController:
         self._stop_event.clear()
         self._task = hass.loop.create_task(self._run())
         LOGGER.info(
-            "PWM 컨트롤러 시작 — PwmController started, profile=%s, cycle=%ds, band=%.1f°C",
-            self.profile.name, self.profile.cycle_period_s, self.profile.proportional_band_c,
+            "PWM 컨트롤러 시작 — PwmController started (per-room presets)"
         )
 
     async def stop(self) -> None:
@@ -157,59 +194,70 @@ class PwmController:
                 pass
             self._task = None
 
-    # ----- public hooks ----------------------------------------------------
+    # ----- public API -------------------------------------------------------
 
-    def upsert_room(
-        self,
-        room: int,
-        current_temp: float | None,
-        polled_setpoint: float | None,
-    ) -> None:
-        """폴링 시 호출 — Called from polling. Adopts the wallpad's current setpoint
-        the first time we see this room, then takes over."""
-        st = self.rooms.get(room)
-        if st is None:
-            st = RoomPwmState(
-                room=room,
-                setpoint=polled_setpoint if polled_setpoint is not None else 22.0,
-                current_temp=current_temp if current_temp is not None else 0.0,
-            )
-            self.rooms[room] = st
-            LOGGER.debug(
-                "PWM 객실 등록 — room %s adopted setpoint=%.1f, current=%.1f",
-                room, st.setpoint, st.current_temp,
-            )
-            return
-        if current_temp is not None:
-            st.current_temp = current_temp
+    def set_preset(self, room: int, preset: str) -> PresetProfile:
+        """객실 프리셋 변경 — Change a room's preset; returns the active profile.
+
+        The canonical setpoint of the new preset becomes the user_setpoint
+        unless the user explicitly sets a different value with ``set_setpoint``.
+        """
+        if preset not in PRESET_PROFILES:
+            LOGGER.warning("Unknown preset %r; falling back to 'none'", preset)
+            preset = PRESET_NONE
+        st = self._get_or_create(room)
+        st.preset = preset
+        st.user_setpoint = PRESET_PROFILES[preset].canonical_setpoint_c
+        # 프리셋 전환 시 즉시 한 번 적용되도록 phase 를 reset 합니다.
+        # Reset the phase so the new preset takes effect on the next tick
+        # rather than waiting out the current cycle.
+        st.cycle_started_at = datetime.now()
+        st.last_sent_phase = None
+        if self._on_state_change is not None:
+            self._on_state_change(room, st)
+        LOGGER.info(
+            "PWM 객실 %s → preset %s (setpoint=%.1f°C, cycle=%ds)",
+            room, preset, st.user_setpoint,
+            PRESET_PROFILES[preset].cycle_period_s,
+        )
+        return PRESET_PROFILES[preset]
 
     def set_setpoint(self, room: int, setpoint: float) -> None:
         """사용자 setpoint 변경 — User changed the setpoint via HA."""
-        st = self.rooms.get(room)
-        if st is None:
-            st = RoomPwmState(room=room, setpoint=setpoint)
-            self.rooms[room] = st
-        else:
-            st.setpoint = setpoint
+        st = self._get_or_create(room)
+        st.user_setpoint = setpoint
+        if self._on_state_change is not None:
+            self._on_state_change(room, st)
         LOGGER.info("PWM 객실 %s setpoint → %.1f°C", room, setpoint)
 
-    def get_displayed_setpoint(self, room: int) -> float | None:
-        """HA 에 표시할 setpoint — Returns the user-facing setpoint to show in HA
-        (the wallpad's echoed value during PWM is manipulated and shouldn't be
-        shown to the user)."""
-        st = self.rooms.get(room)
-        return st.setpoint if st else None
+    def upsert_current_temp(self, room: int, current_temp: float | None) -> None:
+        """폴링 시 호출 — Called from polling to update the measured temp."""
+        if current_temp is None:
+            return
+        st = self._get_or_create(room)
+        st.current_temp = current_temp
 
-    def is_on(self, room: int) -> bool | None:
-        """현재 PWM phase — Returns whether the controller currently has the
-        wallpad on/off for this room (None if unknown)."""
+    def get_room(self, room: int) -> RoomPwmState | None:
+        return self.rooms.get(room)
+
+    def is_active_for(self, room: int) -> bool:
+        """이 객실이 PWM 으로 제어 중인가? — Does PWM currently drive this room?"""
         st = self.rooms.get(room)
-        return st.last_sent_phase if st else None
+        if st is None:
+            return False
+        prof = PRESET_PROFILES[st.preset]
+        return prof.cycle_period_s > 0
 
     # ----- internal --------------------------------------------------------
 
+    def _get_or_create(self, room: int) -> RoomPwmState:
+        st = self.rooms.get(room)
+        if st is None:
+            st = RoomPwmState(room=room)
+            self.rooms[room] = st
+        return st
+
     async def _run(self) -> None:
-        """틱 루프 본체 — Tick loop body."""
         while not self._stop_event.is_set():
             try:
                 await self._tick()
@@ -225,37 +273,39 @@ class PwmController:
     async def _tick(self) -> None:
         now = datetime.now()
         for state in list(self.rooms.values()):
-            if not state.enabled:
-                continue
-            duty = self._compute_duty(state)
-            should_be_on = self._decide_phase(state, duty, now)
+            profile = PRESET_PROFILES[state.preset]
+            if profile.cycle_period_s == 0:
+                continue  # passthrough preset (e.g. none); skip
+            duty = self._compute_duty(state, profile)
+            should_be_on = self._decide_phase(state, profile, duty, now)
             if should_be_on == state.last_sent_phase:
                 continue
             elapsed = (now - state.phase_started_at).total_seconds()
-            if state.last_sent_phase is True and elapsed < self.profile.min_on_s:
-                continue  # honour minimum on-time
-            if state.last_sent_phase is False and elapsed < self.profile.min_off_s:
-                continue  # honour minimum off-time
+            if state.last_sent_phase is True and elapsed < profile.min_on_s:
+                continue
+            if state.last_sent_phase is False and elapsed < profile.min_off_s:
+                continue
             await self._apply(state, should_be_on, now)
             state.target_duty_pct = duty
 
-    def _compute_duty(self, state: RoomPwmState) -> float:
-        """비례 + anti-overshoot — Proportional with anti-overshoot near setpoint."""
-        error = state.setpoint - state.current_temp
-        duty = max(0.0, min(100.0, (error / self.profile.proportional_band_c) * 100.0))
-        # 셋포인트 근접 시 듀티 감소 — reduce duty when getting close to target.
-        if 0 < error < self.profile.overshoot_guard_c and duty > 50.0:
-            duty *= self.profile.overshoot_factor
+    @staticmethod
+    def _compute_duty(state: RoomPwmState, profile: PresetProfile) -> float:
+        error = state.user_setpoint - state.current_temp
+        duty = max(0.0, min(100.0, (error / profile.proportional_band_c) * 100.0))
+        if 0 < error < profile.overshoot_guard_c and duty > 50.0:
+            duty *= profile.overshoot_factor
         return duty
 
+    @staticmethod
     def _decide_phase(
-        self, state: RoomPwmState, duty: float, now: datetime
+        state: RoomPwmState,
+        profile: PresetProfile,
+        duty: float,
+        now: datetime,
     ) -> bool:
-        """현재 사이클 위치에서 on 이어야 하는지 판단 — Should the wallpad be on now?"""
-        cycle_s = self.profile.cycle_period_s
+        cycle_s = profile.cycle_period_s
         elapsed_in_cycle = (now - state.cycle_started_at).total_seconds()
         if elapsed_in_cycle >= cycle_s:
-            # 사이클 갱신 — start a new cycle
             state.cycle_started_at = now
             elapsed_in_cycle = 0.0
         on_duration_s = cycle_s * (duty / 100.0)
@@ -264,27 +314,27 @@ class PwmController:
     async def _apply(
         self, state: RoomPwmState, should_be_on: bool, now: datetime
     ) -> None:
-        """월패드에 명령 전송 — Send the on/off command to the wallpad.
+        """월패드에 명령 전송 — Issue the on/off pulse via the injected callback.
 
-        On 시 setpoint 를 일시적으로 current+5 로 올려 월패드가 보일러를 호출하도록
-        강제합니다. Off 시에는 사용자의 실제 setpoint 를 함께 보냅니다.
-        On the on-pulse we briefly elevate the setpoint to current+5°C so the
-        wallpad's onboard logic actually calls for heat. On the off-pulse we
-        send the user's true setpoint so any external observer sees a sensible
-        value at rest.
+        On-pulse: setpoint elevated to current+5°C so the wallpad's onboard
+        threshold actually calls for heat. Off-pulse: send the user's true
+        setpoint so any external observer sees a sensible value at rest.
         """
-        forced = state.current_temp + 5 if should_be_on else state.setpoint
+        forced = state.current_temp + 5 if should_be_on else state.user_setpoint
         verb = "on" if should_be_on else "off"
         ctrl = f"{verb}/{forced:g}"
         LOGGER.debug(
-            "PWM 객실 %s → %s (duty=%.1f%%, current=%.1f, setpoint=%.1f, sent=%s)",
-            state.room, "ON" if should_be_on else "OFF", state.target_duty_pct,
-            state.current_temp, state.setpoint, ctrl,
+            "PWM 객실 %s → %s (preset=%s, duty=%.1f%%, current=%.1f, "
+            "setpoint=%.1f, sent=%s)",
+            state.room, "ON" if should_be_on else "OFF", state.preset,
+            state.target_duty_pct, state.current_temp, state.user_setpoint, ctrl,
         )
         try:
-            await self.api.send_temper_raw_command(state.room, ctrl)
+            await self._send(state.room, ctrl)
         except Exception as ex:  # noqa: BLE001
             LOGGER.warning("PWM apply failed for room %s: %s", state.room, ex)
             return
         state.last_sent_phase = should_be_on
         state.phase_started_at = now
+        if self._on_state_change is not None:
+            self._on_state_change(state.room, state)

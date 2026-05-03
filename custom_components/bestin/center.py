@@ -398,6 +398,19 @@ class BestinCenterAPI(CenterAPIv2):
         if len(parts) > 4:
             pos_id = int(parts[4])
             sub_type = parts[3]
+        # 표준 HA preset_mode → 정규 setpoint 송신 (PWM 은 iparkapp 한정).
+        # Standard HA preset_mode → push the canonical setpoint to the
+        # wallpad. PWM cycling itself stays iparkapp-only for now.
+        if kwargs and ("preset_mode" in kwargs or "preset" in kwargs):
+            from .pwm import PRESET_PROFILES
+            preset = kwargs.get("preset_mode") or kwargs.get("preset")
+            profile = PRESET_PROFILES.get(preset)
+            if profile is None:
+                LOGGER.warning("Unknown preset %r ignored", preset)
+                return
+            value = profile.canonical_setpoint_c
+            sub_type = SERVICE_SET_TEMPERATURE
+            kwargs = None  # handled
         if kwargs:
             sub_type, value = next(iter(kwargs.items()))
 
@@ -540,10 +553,14 @@ class BestinCenterAPI(CenterAPIv2):
     ):
         """Parse thermostat status."""
         status_parts = unit_status.split("/")
+        from .pwm import PRESET_MODES_DEFAULT
         status_value = {
             ATTR_HVAC_MODE: HVACMode.HEAT if status_parts[0] == "on" else HVACMode.OFF,
             SERVICE_SET_TEMPERATURE: float(status_parts[1]),
-            ATTR_CURRENT_TEMPERATURE: float(status_parts[2])
+            ATTR_CURRENT_TEMPERATURE: float(status_parts[2]),
+            # 표준 HA preset_mode 지원 (PWM 없이 setpoint 만 변경).
+            # Standard HA preset_mode (setpoint-only; no PWM cycling on this gateway).
+            "preset_modes": list(PRESET_MODES_DEFAULT),
         }
         self.set_device("thermostat", unit_num, None, status_value)
 
@@ -552,10 +569,14 @@ class BestinCenterAPI(CenterAPIv2):
     ):
         """Parse temper(thermostat) status."""
         status_parts = unit_status.split("/")
+        from .pwm import PRESET_MODES_DEFAULT
         status_value = {
             ATTR_HVAC_MODE: HVACMode.HEAT if status_parts[0] == "on" else HVACMode.OFF,
             SERVICE_SET_TEMPERATURE: float(status_parts[1]),
-            ATTR_CURRENT_TEMPERATURE: float(status_parts[2])
+            ATTR_CURRENT_TEMPERATURE: float(status_parts[2]),
+            # 표준 HA preset_mode 지원 (PWM 없이 setpoint 만 변경).
+            # Standard HA preset_mode (setpoint-only; no PWM cycling on this gateway).
+            "preset_modes": list(PRESET_MODES_DEFAULT),
         }
         self.set_device("temper", unit_num, None, status_value)
     
