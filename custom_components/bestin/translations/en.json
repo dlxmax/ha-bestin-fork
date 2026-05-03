@@ -82,7 +82,7 @@
         "step": {
             "init": {
                 "title": "Adjust User Options",
-                "description": "Thermostats expose the standard HA presets (Comfort / Eco / Sleep / Away / Vacation / Frost / Boost) per room. On the iPark Smarthome App option these also engage a software PWM cycle. **When using PWM, open your apartment's system-wide LPM valve to roughly 3-4× its old 'low' position (or to 'high' if unmarked).** Schedule vacation windows via the `bestin.set_vacation_window` service. See the [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control) for details.",
+                "description": "Thermostats expose the standard HA presets (Comfort / Eco / Sleep / Away / Vacation / Frost / Boost) per room. On the iPark Smarthome App option these also engage a software PWM cycle. **When using PWM, open your apartment's system-wide LPM valve to roughly 3-4× its old 'low' position (or to 'high' if unmarked).** Use the three importable HA Blueprints under `blueprints/automation/bestin/` for night setback / vacation / away schedules. See the [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control) for details.",
                 "data": {
                     "max_send_retry": "Max Send Retry",
                     "packet_viewer": "Packet Viewer",

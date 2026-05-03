@@ -60,7 +60,6 @@ from .iparkapp_const import (
     DEVICE_CLASSES,
     ENERGY_CATEGORIES,
     ENERGY_PATH_TEMPLATE,
-    FRIENDLY_DEVICE_NAMES,
     INDEX_PATH,
     LOGIN_DATA_PATH,
     LOGIN_LANDING_PATH,
@@ -329,14 +328,20 @@ class BestinIparkAppAPI:
         did_suffix = f"_{sub_id}" if sub_id else ""
         full_device_id = f"{BRAND_PREFIX}_{device_id}{did_suffix}"
 
-        # 친근한 이름 (예: 'livinglight' → 'Light', 'temper' → 'Thermostat')
-        # Friendly display name (e.g. 'livinglight' → 'Light').
-        friendly = FRIENDLY_DEVICE_NAMES.get(device_type, device_type.title())
+        # 표시명에는 식별자 부분만 넣습니다. 장치 유형(예: 'Thermostat')은
+        # device_info 레벨에서 'BESTIN Thermostat' 처럼 한 번만 붙으므로,
+        # 엔티티 이름에 다시 넣으면 'BESTIN Thermostat Thermostat 1' 처럼
+        # 중복됩니다.
+        # Entity name carries only the identifier suffix (room / sub-id).
+        # The friendly type label is added once at the device_info level
+        # ("BESTIN Thermostat"), so HA composes "BESTIN Thermostat 1" for the
+        # final friendly_name. Putting the type word here too produced the
+        # ugly "BESTIN Temper Thermostat 1" doubling that v1.4.0/1.4.1 shipped.
         if sub_id:
             sub_id_parts = sub_id.split("_")
-            device_name = f"{friendly} {device_room} {' '.join(sub_id_parts)}"
+            device_name = f"{device_room} {' '.join(sub_id_parts)}"
         else:
-            device_name = f"{friendly} {device_room}"
+            device_name = f"{device_room}"
 
         if sub_id and not sub_id.isdigit():
             device_type_lookup = (
@@ -401,6 +406,24 @@ class BestinIparkAppAPI:
         if device.info.state != status:
             device.info.state = status
             device.update_callbacks()
+
+    def get_devices_from_domain(self, domain: str) -> list:
+        """플랫폼별 등록된 장치 목록을 반환합니다 — Get devices for a HA platform.
+
+        center.py / controller.py 와 동일한 시그니처를 노출해 climate.py,
+        binary_sensor.py 등의 플랫폼이 게이트웨이별 분기 없이 ``hub.api`` 를
+        그대로 호출할 수 있도록 합니다.
+
+        Mirrors the center.py / controller.py method so the platform setup
+        callbacks can call ``hub.api.get_devices_from_domain(...)`` regardless
+        of which gateway is active.
+        """
+        entity_list = self.entity_groups.get(domain, set())
+        return [
+            self.devices[uid]
+            for uid in entity_list
+            if uid in self.devices
+        ]
 
     # ------------------------------------------------------------------
     # 장치 클래스별 폴링 — Per-device-class polling

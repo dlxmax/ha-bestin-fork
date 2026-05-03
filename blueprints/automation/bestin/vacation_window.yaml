@@ -1,0 +1,130 @@
+blueprint:
+  name: BESTIN — 휴가 일정 / Vacation window
+  description: >
+    여행 떠나는 시각에 Vacation 모드로, 복귀 N 시간 전부터 Boost 로, 복귀 시각에
+    Comfort 로 자동 전환합니다. 두 input_datetime helper (출발 시각·복귀 시각) 와
+    이 blueprint 만 있으면 됩니다.
+
+    On the departure datetime switches to Vacation, then Boost N hours
+    before return, then Comfort at return. Needs only two input_datetime
+    helpers (depart / return) plus this blueprint.
+
+    **사용 방법 / How to use:**
+    1. 설정 → 도우미 → input_datetime 두 개 만들기 (예: `vacation_depart`,
+       `vacation_return`). 모두 'date and time' 타입.
+       *Settings → Helpers → create two input_datetime helpers (e.g.
+       `vacation_depart`, `vacation_return`), both 'date and time' type.*
+    2. 이 blueprint 임포트 후 자동화 생성, 두 helper 와 대상 climate 엔티티 지정.
+       *Import this blueprint and create an automation, picking the two
+       helpers and your BESTIN climate entities.*
+    3. 휴가 갈 때 도우미의 두 시각을 채우면 자동 적용됩니다. 비우면 비활성.
+       *To activate, fill in both helper datetimes; to cancel, clear them.*
+
+    > **iPark 스마트홈 앱 옵션 사용 시:** 단지 LPM 유량 밸브를 'high' 또는 기존
+    > 'low' 의 3-4 배로 열어두세요. 자세한 내용은
+    > [iPark 스마트홈 앱 가이드](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control)
+    > 참조.
+    > **iPark Smarthome App option:** open your LPM valve to "high" or
+    > 3-4× its old "low" setting. See the
+    > [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control).
+
+  domain: automation
+  source_url: https://github.com/dlxmax/ha-bestin-fork/blob/main/blueprints/automation/bestin/vacation_window.yaml
+
+  input:
+    target_climates:
+      name: 대상 온도조절기 / Target thermostats
+      description: >
+        휴가 모드를 적용할 BESTIN climate 엔티티 (모든 객실 권장).
+        BESTIN climate entities to put in Vacation mode (recommend all rooms).
+      selector:
+        target:
+          entity:
+            integration: bestin
+            domain: climate
+
+    depart_helper:
+      name: 출발 시각 helper / Depart datetime helper
+      description: >
+        date+time input_datetime. 이 시각에 Vacation 으로 전환됩니다.
+        date+time input_datetime. Switches to Vacation at this moment.
+      selector:
+        entity:
+          domain: input_datetime
+
+    return_helper:
+      name: 복귀 시각 helper / Return datetime helper
+      description: >
+        date+time input_datetime. 이 시각에 Comfort 로 복귀합니다.
+        date+time input_datetime. Returns to Comfort at this moment.
+      selector:
+        entity:
+          domain: input_datetime
+
+    pre_warm_hours:
+      name: 사전 가열 시간 (시간) / Pre-warm hours
+      description: >
+        복귀 시각보다 N 시간 전부터 Boost 로 미리 가열. 0 으로 두면 사전 가열 없음.
+        How many hours before return to start Boost recovery. 0 = no pre-warm.
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 24
+          step: 0.5
+          unit_of_measurement: hours
+
+mode: single
+max_exceeded: silent
+
+variables:
+  depart_id: !input depart_helper
+  return_id: !input return_helper
+  pre_warm: !input pre_warm_hours
+
+trigger:
+  # 1분마다 시간 비교 — check time once per minute. Inexpensive and survives
+  # restarts, helper edits, and time-zone changes without extra plumbing.
+  - platform: time_pattern
+    minutes: "/1"
+
+action:
+  - variables:
+      depart_str: "{{ states(depart_id) }}"
+      return_str: "{{ states(return_id) }}"
+  # helper 가 비어 있으면 종료 — abort silently if either helper is unset.
+  - condition: template
+    value_template: >
+      {{ depart_str not in ['unknown', 'unavailable', '', 'none', None] and
+         return_str not in ['unknown', 'unavailable', '', 'none', None] }}
+  - variables:
+      depart_dt: "{{ as_datetime(depart_str) }}"
+      return_dt: "{{ as_datetime(return_str) }}"
+      boost_dt: "{{ return_dt - timedelta(hours=pre_warm | float) }}"
+      now_dt: "{{ now().replace(second=0, microsecond=0) }}"
+  # 정확히 출발 시각 — Vacation. Match to the minute.
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ now_dt == depart_dt }}"
+        sequence:
+          - service: climate.set_preset_mode
+            target: !input target_climates
+            data:
+              preset_mode: vacation
+      - conditions:
+          - condition: template
+            value_template: "{{ pre_warm | float > 0 and now_dt == boost_dt }}"
+        sequence:
+          - service: climate.set_preset_mode
+            target: !input target_climates
+            data:
+              preset_mode: boost
+      - conditions:
+          - condition: template
+            value_template: "{{ now_dt == return_dt }}"
+        sequence:
+          - service: climate.set_preset_mode
+            target: !input target_climates
+            data:
+              preset_mode: comfort

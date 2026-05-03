@@ -1,0 +1,112 @@
+blueprint:
+  name: BESTIN — 외출 자동 감지 / Away when home is empty
+  description: >
+    가족 모두가 집을 나가면 Away 모드로, 누군가가 돌아오면 Comfort 로 자동 전환.
+    HA 의 person/device_tracker 엔티티에 의존합니다 (Home Assistant Companion 앱
+    또는 라우터 device tracker 등 어떤 출처든 동일하게 동작).
+
+    Switches all targeted thermostats to Away when every selected
+    person/tracker is `not_home`, and back to Comfort as soon as any one
+    is `home`. Works with any Home Assistant person/device_tracker entity
+    (Companion app, router-based tracker, etc.).
+
+    > **참고:** Away 셋포인트 는 16°C (PWM 사이클 25분, iparkapp 게이트웨이 한정).
+    > 더 절약하고 싶다면 Vacation (13°C) 로 바꿔도 됩니다 — 다만 누가 빨리
+    > 돌아오면 회복이 느려집니다. 자세한 모드 표는
+    > [iPark 스마트홈 앱 가이드](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control)
+    > 참조.
+    > Away setpoint is 16°C (25-min PWM cycle on iparkapp). For deeper
+    > savings switch to Vacation (13°C), but recovery will be slower if
+    > someone returns soon. Mode table in the
+    > [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control).
+
+  domain: automation
+  source_url: https://github.com/dlxmax/ha-bestin-fork/blob/main/blueprints/automation/bestin/away_when_empty.yaml
+
+  input:
+    target_climates:
+      name: 대상 온도조절기 / Target thermostats
+      description: >
+        외출 시 자동 전환할 BESTIN climate 엔티티 (모든 객실 권장).
+        BESTIN climate entities to flip on home empty/occupied.
+      selector:
+        target:
+          entity:
+            integration: bestin
+            domain: climate
+
+    presence_entities:
+      name: 가족 위치 엔티티 / Presence entities
+      description: >
+        person 또는 device_tracker 엔티티들. 모두가 not_home 이면 Away,
+        누군가 home 이 되면 Comfort.
+        person or device_tracker entities. All not_home → Away. Any home → Comfort.
+      selector:
+        entity:
+          multiple: true
+          domain:
+            - person
+            - device_tracker
+
+    away_preset:
+      name: 외출 프리셋 / Away preset
+      description: >
+        모두 외출 시 사용할 프리셋. away (16°C) 또는 vacation (13°C) 추천.
+        Preset to use when everyone is out. Recommended: away (16°C) or
+        vacation (13°C).
+      default: away
+      selector:
+        select:
+          options:
+            - { value: away, label: "Away (16°C)" }
+            - { value: vacation, label: "Vacation (13°C)" }
+            - { value: eco, label: "Eco (20°C)" }
+
+    return_preset:
+      name: 복귀 프리셋 / Return preset
+      description: >
+        누군가 돌아왔을 때 전환할 프리셋. comfort (22°C) 가 일반적,
+        boost (23°C, 빠른 가열) 도 사용 가능.
+        Preset when someone returns. comfort (22°C) is normal; boost (23°C
+        for fast warm-up) is an option.
+      default: comfort
+      selector:
+        select:
+          options:
+            - { value: comfort, label: "Comfort (22°C)" }
+            - { value: boost, label: "Boost (23°C — fast warm-up)" }
+            - { value: eco, label: "Eco (20°C)" }
+
+mode: single
+max_exceeded: silent
+
+variables:
+  presence_list: !input presence_entities
+  away_preset_var: !input away_preset
+  return_preset_var: !input return_preset
+
+trigger:
+  - platform: state
+    entity_id: !input presence_entities
+
+action:
+  - variables:
+      anyone_home: >
+        {{ presence_list | select('is_state', 'home') | list | count > 0 }}
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ anyone_home }}"
+        sequence:
+          - service: climate.set_preset_mode
+            target: !input target_climates
+            data:
+              preset_mode: "{{ return_preset_var }}"
+      - conditions:
+          - condition: template
+            value_template: "{{ not anyone_home }}"
+        sequence:
+          - service: climate.set_preset_mode
+            target: !input target_climates
+            data:
+              preset_mode: "{{ away_preset_var }}"

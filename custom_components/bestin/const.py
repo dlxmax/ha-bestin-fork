@@ -7,9 +7,10 @@ from homeassistant.const import Platform
 
 DOMAIN = "bestin"
 NAME = "BESTIN"
-VERSION = "1.4.1"
+VERSION = "1.4.2"
 
 PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
     Platform.CLIMATE,
     Platform.FAN,
     Platform.LIGHT,
@@ -46,6 +47,7 @@ PRESET_NV = "natural_ventilation"
 
 BRAND_PREFIX = "bestin"
 
+NEW_BINARY_SENSOR = "binary_sensors"
 NEW_CLIMATE = "climates"
 NEW_FAN = "fans"
 NEW_LIGHT = "lights"
@@ -63,6 +65,7 @@ MAIN_DEVICES: list[str] = [
 ]
 
 PLATFORM_SIGNAL_MAP = {
+    Platform.BINARY_SENSOR.value: NEW_BINARY_SENSOR,
     Platform.CLIMATE.value: NEW_CLIMATE,
     Platform.FAN.value: NEW_FAN,
     Platform.LIGHT.value: NEW_LIGHT,
@@ -84,13 +87,18 @@ DEVICE_PLATFORM_MAP = {
     "outlet:standbycut": Platform.SWITCH.value,
     "outlet:powercons": Platform.SENSOR.value,
     "energy": Platform.SENSOR.value,
-    "doorlock": Platform.SWITCH.value,
+    "doorlock": Platform.BINARY_SENSOR.value,
     "elevator": Platform.SWITCH.value,
     "elevator:direction": Platform.SENSOR.value,
     "elevator:floor": Platform.SENSOR.value,
     "electric": Platform.SWITCH.value,
     "electric:standbycut": Platform.SWITCH.value,
     "gas": Platform.SWITCH.value,
+    # 도어락은 '잠김/해제' 상태만 정확히 노출됩니다. iPark 앱 게이트웨이는 제어
+    # 명령을 지원하지 않고, RS-485 게이트웨이의 제어 패킷도 검증되지 않았습니다.
+    # Doorlock state is only reliably reported, not controlled. The iPark App
+    # gateway exposes no control endpoint, and the RS-485 doorlock packet is
+    # unverified — so this is safest as a binary_sensor (locked / unlocked).
     # 'unit_cnt' 를 초과해 응답되는 추가 난방 온도 센서. 구체적 의미는 단지마다
     # 상이하며, 지역난방 공급 온도일 수 있으나 확인되지 않았습니다.
     # Extra heat-temperature reading the wallpad reports beyond the household's
@@ -99,6 +107,29 @@ DEVICE_PLATFORM_MAP = {
     # something else; not confirmed.
     "heatsource": Platform.SENSOR.value,
 }
+
+# 친근한 표시명 — Friendly display names for HA entities. The internal
+# device_type strings (e.g. ``livinglight``, ``temper``) stay stable so that
+# device-registry identifiers and unique_ids do not drift across versions;
+# this map is consulted only for what HA shows on screen.
+FRIENDLY_TYPE_NAMES: dict[str, str] = {
+    "livinglight": "Light",
+    "light": "Light",
+    "smartlight": "Light",
+    "electric": "Outlet",
+    "outlet": "Outlet",
+    "temper": "Thermostat",
+    "thermostat": "Thermostat",
+    "gas": "Gas Valve",
+    "fan": "Ventilation",
+    "ventil": "Ventilation",
+    "mode": "Away Mode",
+    "doorlock": "Door Lock",
+    "heatsource": "Heat Sensor",
+    "energy": "Energy",
+    "elevator": "Elevator",
+}
+
 
 @dataclass
 class DeviceInfo:

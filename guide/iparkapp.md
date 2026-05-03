@@ -152,60 +152,37 @@ i-parklife.com 디렉터리에서 60여 개 단지가 자동으로 조회됩니�
 LPM 밸브 위치를 잘못 설정하면 PWM 의 효과가 크게 떨어집니다. 통합 설정 화면 (Settings → Devices & Services → BESTIN → Configure) 의 안내문에도 같은 권장사항이 있습니다.  
 *Wrong LPM position significantly degrades PWM effectiveness. The same advice appears in the integration's options-flow description.*
 
-### 휴가 일정 서비스 / Vacation-window service
+### 자동화 / Automations — Blueprints
 
-```yaml
-service: bestin.set_vacation_window
-data:
-  # 생략하면 BESTIN 의 모든 climate 엔티티에 적용됩니다.
-  # Omit to apply to every BESTIN climate entity.
-  entity_id:
-    - climate.bestin_temper_1
-    - climate.bestin_temper_2
-  start: "2026-12-20 18:00:00"
-  end: "2026-12-27 19:00:00"
-  pre_warm_hours: 2          # 복귀 2시간 전부터 Boost (선택). / Boost N hours before return (optional).
-  vacation_preset: vacation  # 휴가 중 모드 (기본 vacation). / Mode during the trip.
-  recovery_preset: boost     # 복귀 직전 모드 (기본 boost). / Mode for the recovery phase.
-  return_preset: comfort     # 복귀 후 모드 (기본 comfort). / Mode after return.
-```
+반복 일정 (야간 setback / 외출 / 휴가) 은 HA Blueprint 로 제공합니다. 한 번 임포트한 후 HA UI 에서 객실·시각·도우미를 채우면 됩니다 — 통합 안에 별도 UI 를 만들지 않은 이유는 HA 가 이미 훌륭한 UI 를 제공하기 때문입니다.  
+*Recurring schedules (night setback / away / vacation) are shipped as HA Blueprints. Import once, then fill in entity IDs / times / helpers via HA's standard UI — we don't reinvent it because HA already has a polished one.*
 
-서비스는 절대 시각 트리거를 사용하므로 호출 후 다른 자동화가 필요하지 않습니다. 다만 HA 가 **재시작되면 예약이 사라지므로** 재시작 후 다시 호출하거나, automation 의 trigger 로 등록해 두세요.  
-*The service uses absolute-time triggers, so no further automation is needed after the call. **HA restart clears the schedule** — re-invoke after restart or register the call as an automation trigger.*
+#### 야간 setback / Night setback
 
-### 야간 setback 자동화 예시 / Sample night-setback automation
+매일 정해진 시각에 Sleep → Boost → Comfort 로 자동 전환. 평일/주말 토글 포함.  
+*Daily Sleep → Boost → Comfort transitions; optional weekday-only toggle.*
 
-```yaml
-automation:
-  - alias: "온돌 야간 모드 / Ondol night mode"
-    trigger: { platform: time, at: "23:00:00" }
-    action:
-      service: climate.set_preset_mode
-      target:
-        entity_id:
-          - climate.bestin_temper_1   # main bedroom
-          - climate.bestin_temper_2   # second bedroom
-      data: { preset_mode: sleep }
+[![Open in HA / HA 에서 열기](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fdlxmax%2Fha-bestin-fork%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fbestin%2Fnight_setback.yaml)
 
-  - alias: "온돌 아침 가열 / Ondol morning warm-up"
-    trigger: { platform: time, at: "06:30:00" }
-    action:
-      service: climate.set_preset_mode
-      target:
-        entity_id: climate.bestin_temper_3   # main living area
-      data: { preset_mode: boost }
+#### 휴가 일정 / Vacation window
 
-  - alias: "온돌 아침 일반 모드 / Ondol morning normal"
-    trigger: { platform: time, at: "07:15:00" }
-    action:
-      service: climate.set_preset_mode
-      target:
-        entity_id:
-          - climate.bestin_temper_1
-          - climate.bestin_temper_2
-          - climate.bestin_temper_3
-      data: { preset_mode: comfort }
-```
+`input_datetime` helper 두 개 (출발 시각 · 복귀 시각) 를 만든 뒤 임포트. 복귀 N 시간 전 Boost 설정 가능.  
+*Create two `input_datetime` helpers (depart, return), then import. Optional pre-warm hours before return.*
+
+[![Open in HA / HA 에서 열기](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fdlxmax%2Fha-bestin-fork%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fbestin%2Fvacation_window.yaml)
+
+#### 외출 자동 감지 / Away when home is empty
+
+가족 모두 not_home → Away. 누군가 home → Comfort. HA 의 person/device_tracker 엔티티 사용.  
+*Triggers on HA presence entities — all not_home → Away; any home → Comfort.*
+
+[![Open in HA / HA 에서 열기](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fdlxmax%2Fha-bestin-fork%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fbestin%2Faway_when_empty.yaml)
+
+세 blueprint 모두 표준 `climate.set_preset_mode` 서비스를 사용하므로 다른 thermostat 통합과도 함께 동작합니다 (entity_id 만 본인 환경에 맞게 지정).  
+*All three blueprints use the standard `climate.set_preset_mode` service, so they also work alongside any other HA-thermostat integration — just point them at the right entity_ids.*
+
+원본 YAML: [blueprints/automation/bestin/](https://github.com/dlxmax/ha-bestin-fork/tree/main/blueprints/automation/bestin)  
+*Raw YAML files: [blueprints/automation/bestin/](https://github.com/dlxmax/ha-bestin-fork/tree/main/blueprints/automation/bestin)*
 
 ### 알고리즘 / Algorithm (참고 / reference)
 

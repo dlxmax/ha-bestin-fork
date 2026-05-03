@@ -19,6 +19,7 @@ from .const import (
     LOGGER,
     SMART_HOME_1,
     SMART_HOME_2,
+    NEW_BINARY_SENSOR,
     NEW_CLIMATE,
     NEW_FAN,
     NEW_LIGHT,
@@ -362,6 +363,7 @@ class BestinHub:
     def async_signal_new_device(self, device_type: str) -> str:
         """Generate a signal for a new device."""
         new_device = {
+            NEW_BINARY_SENSOR: "bestin_new_binary_sensor",
             NEW_CLIMATE: "bestin_new_climate",
             NEW_FAN: "bestin_new_fan",
             NEW_LIGHT: "bestin_new_light",

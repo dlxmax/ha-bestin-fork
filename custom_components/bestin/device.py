@@ -7,8 +7,19 @@ from typing import Any
 from homeassistant.helpers.entity import Entity, DeviceInfo
 from homeassistant.core import callback
 
-from .const import DOMAIN, MAIN_DEVICES
+from .const import DOMAIN, FRIENDLY_TYPE_NAMES, MAIN_DEVICES
 from .until import formatted_name
+
+
+def _friendly_type_label(device_type: str) -> str:
+    """친근한 표시명을 반환합니다 — Return the user-facing label for ``device_type``.
+
+    Falls back to title-casing the raw type when no friendly mapping exists.
+    Sub-typed values like ``outlet:cutvalue`` strip the colon-suffix first,
+    so ``outlet:cutvalue`` resolves via the ``outlet`` entry.
+    """
+    base = device_type.split(":", 1)[0] if ":" in device_type else device_type
+    return FRIENDLY_TYPE_NAMES.get(base, formatted_name(base))
 
 
 class BestinBase:
@@ -19,11 +30,11 @@ class BestinBase:
         self._device = device
         self._device_info = device.info
         self.hub = hub
-    
+
     async def enqueue_command(self, data: Any = None, **kwargs):
         """Send commands to the device."""
         await self._device.enqueue_command(self._device_info.device_id, data, **kwargs)
-    
+
     @property
     def unique_id(self) -> str:
         """Get unique device ID."""
@@ -31,17 +42,24 @@ class BestinBase:
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Get device registry information."""
+        """Get device registry information.
+
+        ``identifiers`` keep the raw, version-stable type string so that an
+        upgrade does not orphan existing devices in the registry. ``name`` uses
+        the friendly label so the UI shows e.g. "BESTIN Light" instead of the
+        internal "BESTIN Livinglight".
+        """
         if (device_type := self._device_info.device_type) not in MAIN_DEVICES:
-            formatted_id = formatted_name(device_type)
-            device_name = f"{self.hub.name} {formatted_id}"
+            stable_id = formatted_name(device_type)
+            display_label = _friendly_type_label(device_type)
+            device_name = f"{self.hub.name} {display_label}"
         else:
-            formatted_id = self.hub.model
+            stable_id = self.hub.model
             device_name = self.hub.name
 
         return DeviceInfo(
             connections={(self.hub.hub_id, self.unique_id)},
-            identifiers={(DOMAIN, f"{self.hub.wp_version}_{formatted_id}")},
+            identifiers={(DOMAIN, f"{self.hub.wp_version}_{stable_id}")},
             manufacturer="HDC Labs Co., Ltd.",
             model=self.hub.wp_version,
             name=device_name,

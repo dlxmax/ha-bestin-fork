@@ -87,21 +87,13 @@ DEFAULT_SESSION_REFRESH_MINUTES = 15
 # 객실 탐색 범위 — Probe range when discovering room-scoped devices.
 ROOM_PROBE_RANGE = range(1, 7)
 
-# 친근한 표시명 — Friendly display names for HA entities. The internal
-# device_type strings (e.g. ``livinglight``, ``temper``) are kept for
-# routing, but HA shows the values below.
-FRIENDLY_DEVICE_NAMES: dict[str, str] = {
-    "livinglight": "Light",
-    "light": "Light",
-    "electric": "Outlet",
-    "temper": "Thermostat",
-    "gas": "Gas Valve",
-    "ventil": "Ventilation",
-    "mode": "Away Mode",
-    "doorlock": "Door Lock",
-    "heatsource": "Heat Sensor",
-    "energy": "Energy",
-}
+# 친근한 표시명은 const.py 의 FRIENDLY_TYPE_NAMES 로 통합되었습니다 (v1.4.2).
+# 모든 게이트웨이가 동일한 표시명을 공유하며, 표시는 device_info 레벨에서만
+# 적용되므로 엔티티 unique_id 와 디바이스 식별자는 변하지 않습니다.
+# Friendly display names were consolidated into ``const.FRIENDLY_TYPE_NAMES``
+# in v1.4.2 so all three gateway paths share the same labels and the mapping
+# is applied only at the device_info level (entity unique_ids and the device
+# registry identifiers are unchanged).
 
 
 # Referer 헤더용 페이지 매핑 — Per-class referer page for AJAX fidelity.

@@ -439,11 +439,16 @@ class BestinCenterAPI(CenterAPIv2):
     
         did_suffix = f"_{sub_id}" if sub_id else ""
         device_id = f"{BRAND_PREFIX}_{device_id}{did_suffix}"
+        # 표시명에는 식별자만 넣습니다. 친근한 유형 라벨은 device_info 레벨에서
+        # 한 번만 붙으므로 여기서 또 넣으면 중복됩니다 (예: "Temper Temper 1").
+        # Entity name carries only room / sub-id; the friendly type label is
+        # added once at device_info level. Keeping it here too produced ugly
+        # doubled names like "BESTIN Temper Temper 1".
         if sub_id:
             sub_id_parts = sub_id.split("_")
-            device_name = f"{device_type} {device_room} {' '.join(sub_id_parts)}".title()
+            device_name = f"{device_room} {' '.join(sub_id_parts)}".strip()
         else:
-            device_name = f"{device_type} {device_room}".title()
+            device_name = f"{device_room}"
 
         if sub_id and not sub_id.isdigit():
             device_type = f"{device_type}:{''.join(filter(str.isalpha, sub_id))}"

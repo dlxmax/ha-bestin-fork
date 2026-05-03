@@ -1,0 +1,124 @@
+blueprint:
+  name: BESTIN — 야간 setback / Night setback
+  description: >
+    온돌 온도조절기를 매일 정해진 시각에 Sleep (야간) 모드로 전환하고, 다음 날
+    아침에 Boost 후 Comfort 로 복귀시킵니다. v1.4 의 표준 HA 프리셋을 사용합니다.
+    완전 OFF 보다 안전하고, 결로 방지 + 빠른 아침 회복이 가능합니다.
+
+    Switches BESTIN ondol thermostats to Sleep at a configurable bedtime,
+    then runs Boost briefly before wake-up, then returns to Comfort. Uses
+    the standard HA preset_modes shipped in v1.4. Safer and more efficient
+    than fully turning off overnight (no condensation, faster recovery).
+
+    > **iPark 스마트홈 앱 옵션 사용 시:** 단지 LPM 유량 밸브를 기존 'low'
+    > 위치보다 약 3-4 배 (또는 'high') 로 열어두세요. 자세한 내용은
+    > [iPark 스마트홈 앱 가이드](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control)
+    > 참조.
+    > **iPark Smarthome App option:** open your apartment's system-wide LPM
+    > flow valve to roughly 3-4× its old "low" position (or "high"). Full
+    > guidance in the
+    > [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control).
+
+  domain: automation
+  source_url: https://github.com/dlxmax/ha-bestin-fork/blob/main/blueprints/automation/bestin/night_setback.yaml
+
+  input:
+    target_climates:
+      name: 대상 온도조절기 / Target thermostats
+      description: >
+        야간 setback 을 적용할 BESTIN climate 엔티티 (객실별).
+        Pick the BESTIN climate entities to put on night setback (per room).
+      selector:
+        target:
+          entity:
+            integration: bestin
+            domain: climate
+
+    sleep_start:
+      name: 잠자리 시각 / Bedtime — switch to Sleep
+      description: >
+        Sleep 모드 전환 시각 (예: 23:00). 이 시각에 setpoint 가 17°C 로 떨어지고,
+        iPark 스마트홈 앱 게이트웨이에서는 25분 PWM 사이클이 시작됩니다.
+        Time to switch to Sleep (e.g. 23:00). Setpoint drops to 17°C and on
+        the iPark Smarthome App gateway the 25-min PWM cycle starts.
+      default: "23:00:00"
+      selector:
+        time: {}
+
+    boost_start:
+      name: 아침 가열 시작 / Morning Boost start
+      description: >
+        잠에서 깨기 전 빠르게 가열 시작할 시각 (예: 06:30).
+        Time to start the pre-wake Boost recovery (e.g. 06:30).
+      default: "06:30:00"
+      selector:
+        time: {}
+
+    comfort_start:
+      name: 일반 모드 복귀 / Comfort resume
+      description: >
+        Boost 종료 후 일반 Comfort 모드로 복귀할 시각 (예: 07:15). Boost 시작
+        시각보다 30~60 분 후를 권장합니다.
+        Time to drop Boost and return to Comfort (e.g. 07:15). Recommended
+        30-60 min after Boost start.
+      default: "07:15:00"
+      selector:
+        time: {}
+
+    weekdays_only:
+      name: 평일에만 적용 / Weekdays only
+      description: >
+        켜면 월~금에만 동작합니다 (주말은 자유).
+        Run only on Monday-Friday (weekends free).
+      default: false
+      selector:
+        boolean: {}
+
+mode: parallel
+max_exceeded: silent
+
+variables:
+  weekdays_only_var: !input weekdays_only
+
+trigger:
+  - platform: time
+    at: !input sleep_start
+    id: sleep
+  - platform: time
+    at: !input boost_start
+    id: boost
+  - platform: time
+    at: !input comfort_start
+    id: comfort
+
+condition:
+  - condition: template
+    value_template: >
+      {{ (not weekdays_only_var) or (now().weekday() < 5) }}
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: sleep
+        sequence:
+          - service: climate.set_preset_mode
+            target: !input target_climates
+            data:
+              preset_mode: sleep
+      - conditions:
+          - condition: trigger
+            id: boost
+        sequence:
+          - service: climate.set_preset_mode
+            target: !input target_climates
+            data:
+              preset_mode: boost
+      - conditions:
+          - condition: trigger
+            id: comfort
+        sequence:
+          - service: climate.set_preset_mode
+            target: !input target_climates
+            data:
+              preset_mode: comfort
