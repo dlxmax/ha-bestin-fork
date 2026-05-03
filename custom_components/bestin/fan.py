@@ -69,20 +69,41 @@ class BestinFan(BestinDevice, FanEntity):
     def __init__(self, device, hub) -> None:
         """Initialize the fan."""
         super().__init__(device, hub)
-        self._supported_features = FanEntityFeature.SET_SPEED
-        self._supported_features |= FanEntityFeature.TURN_ON
-        self._supported_features |= FanEntityFeature.TURN_OFF
-        self._speed_list = self._device_info.state.get("speed_list")
-        self._preset_modes = self._device_info.state.get(ATTR_PRESET_MODES)
+        # iparkapp 의 ventil 은 초기 상태가 bool ("on"/"off") 이고, center /
+        # controller 는 dict (speed_list, preset_modes 등) 를 보냅니다. v1.4.4
+        # 까지는 항상 dict 를 가정해 ``state.get(...)`` 가 bool 위에서 즉시
+        # AttributeError 로 깨졌고, 결과적으로 모든 iparkapp 사용자의 fan 플랫폼
+        # 등록이 통째로 실패했습니다 (다른 게이트웨이의 fan/ventil 은 영향 없음).
+        # The ventil entity arrives as either a bool (iparkapp — just on/off)
+        # or a dict (center / controller — with speed_list / preset_modes).
+        # Up to v1.4.4 the unconditional ``state.get(...)`` raised
+        # AttributeError on the bool form and broke the entire fan platform
+        # for every iparkapp user. Be defensive and degrade gracefully.
         self._version_exists = getattr(hub.api, CONF_VERSION, False)
 
-        if self._preset_modes:
-            self._supported_features |= FanEntityFeature.PRESET_MODE
+        self._supported_features = (
+            FanEntityFeature.TURN_ON | FanEntityFeature.TURN_OFF
+        )
+        state = self._device_info.state
+        if isinstance(state, dict):
+            self._speed_list = state.get("speed_list")
+            self._preset_modes = state.get(ATTR_PRESET_MODES)
+            if self._speed_list:
+                self._supported_features |= FanEntityFeature.SET_SPEED
+            if self._preset_modes:
+                self._supported_features |= FanEntityFeature.PRESET_MODE
+        else:
+            # iparkapp: simple on/off ventil, no speed levels / presets.
+            self._speed_list = None
+            self._preset_modes = None
 
     @property
     def is_on(self) -> bool:
         """Return true if fan is on."""
-        return self._device_info.state[ATTR_STATE]
+        state = self._device_info.state
+        if isinstance(state, dict):
+            return state[ATTR_STATE]
+        return bool(state)
 
     @property
     def supported_features(self) -> FanEntityFeature:
@@ -92,15 +113,18 @@ class BestinFan(BestinDevice, FanEntity):
     @property
     def percentage(self) -> Optional[int]:
         """Return the current speed percentage."""
+        if not self._speed_list:
+            # iparkapp ventil — no speed control, surface on/off as 0/100.
+            return 100 if self.is_on else 0
         speed = self._device_info.state[WIND_SPEED]
         if speed == STATE_OFF:
             return 0
         return ordered_list_item_to_percentage(self._speed_list, speed)
-    
+
     @property
     def speed_count(self) -> int:
         """Return the number of speeds the fan supports."""
-        return len(self._speed_list)
+        return len(self._speed_list) if self._speed_list else 1
 
     async def async_set_percentage(self, percentage: int) -> None:
         """Set the speed percentage of the fan."""
