@@ -3,10 +3,11 @@
     "config": {
         "step": {
             "user": {
-                "description": "If socket or serial communication is ready, press the local button to start. If IPARK Smart Home app is officially supported, additional features are provided through Smart Home integration.",
+                "description": "If socket or serial communication is ready, press the local button to start. If IPARK Smart Home app is officially supported, additional features are provided through Smart Home integration. The new 'iPark Smarthome App' option works through the apartment complex's central server, the same way the official Android app does.",
                 "menu_options": {
                     "local": "Local Communication Connection",
-                    "center": "IPARK Smart Home Integration"
+                    "center": "IPARK Smart Home Integration",
+                    "iparkapp": "iPark Smarthome App"
                 }
             },
             "local": {
@@ -40,6 +41,30 @@
                 "data_description": {
                     "ip_address": "If elevator integration is required, please enter the IP address of the wall pad in the household."
                 }
+            },
+            "iparkapp": {
+                "description": "Pick your apartment complex. The list is fetched from the i-parklife.com directory. Choose 'Enter manually' if your complex is missing.",
+                "data": {
+                    "site": "Apartment complex"
+                }
+            },
+            "iparkapp_manual": {
+                "description": "Enter the central server details manually. IP is required; the rest are optional.",
+                "data": {
+                    "ip": "Server IP address",
+                    "sitename": "Site name (optional)",
+                    "sitecode": "Site code (optional)",
+                    "weather": "SITEWeather (optional)",
+                    "lat": "SITELat (optional)",
+                    "lng": "SITELng (optional)"
+                }
+            },
+            "iparkapp_login": {
+                "description": "Enter the same username and password you use in the iPark Smarthome app. No token copy-paste needed.",
+                "data": {
+                    "username": "Username",
+                    "password": "Password"
+                }
             }
         },
         "abort": {
@@ -49,6 +74,7 @@
             "connect_failed": "Connection failed.",
             "login_failed": "Login failed. {err}",
             "network_error": "A network error has occurred.",
+            "directory_lookup_failed": "Could not look up the site directory.",
             "unknown": "An unknown error has occurred."
         }
     },

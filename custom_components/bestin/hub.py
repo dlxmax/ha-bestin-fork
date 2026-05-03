@@ -27,6 +27,8 @@ from .const import (
 )
 from .center import BestinCenterAPI
 from .controller import BestinController
+from .iparkapp import BestinIparkAppAPI
+from .iparkapp_const import CONF_IPARKAPP_SITE, SMART_HOME_APP
 from .until import check_ip_or_serial
 
 
@@ -221,7 +223,7 @@ class BestinHub:
         """Initialize the BestinHub."""
         self.hass = hass
         self.entry = entry
-        self.api: BestinCenterAPI | BestinController = None
+        self.api: BestinCenterAPI | BestinController | BestinIparkAppAPI = None
         self.connection: ConnectionManager = None
         saved_mode = entry.data.get("gateway_mode")
         if saved_mode and isinstance(saved_mode, (list, tuple)) and len(saved_mode) == 2:
@@ -276,6 +278,8 @@ class BestinHub:
     @property
     def cntr_version(self) -> str:
         """Get the controller version."""
+        if CONF_IPARKAPP_SITE in self.entry.data:
+            return SMART_HOME_APP
         if CONF_USERNAME in self.entry.data:
             return SMART_HOME_1
         return SMART_HOME_2
@@ -465,4 +469,22 @@ class BestinHub:
             raise RuntimeError(
                 f"Failed to initialize Bestin hub. Host: {self.hub_id}, Version: {self.cntr_version}. "
                 f"Error: {str(ex)}"
+            )
+
+    async def async_initialize_iparkapp(self) -> None:
+        """iPark 스마트홈 앱 — Initialise the new gateway type."""
+        try:
+            self.api = BestinIparkAppAPI(
+                self.hass,
+                self.entry,
+                self.entity_groups,
+                self.hub_id,
+                self.async_add_device_callback,
+            )
+            await self.api.start()
+        except Exception as ex:
+            self.api = None
+            raise RuntimeError(
+                f"Failed to initialize Bestin iParkApp hub. Host: {self.hub_id}. "
+                f"Error: {ex!s}"
             )

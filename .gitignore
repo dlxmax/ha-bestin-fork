@@ -1,0 +1,7 @@
+temp/
+*.pyc
+__pycache__/
+.env
+.env.*
+secrets.local
+credentials.local

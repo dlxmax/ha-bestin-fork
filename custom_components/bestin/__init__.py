@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, LOGGER, PLATFORMS, CONF_SESSION
 from .hub import BestinHub
+from .iparkapp_const import CONF_IPARKAPP_SITE
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -17,7 +18,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hub = BestinHub(hass, entry)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = hub
 
-    if CONF_SESSION not in entry.data:
+    # iPark 스마트홈 앱 — new gateway type takes precedence when its key is present.
+    if CONF_IPARKAPP_SITE in entry.data:
+        LOGGER.info("Start iParkApp initialization.")
+        await hub.async_initialize_iparkapp()
+    elif CONF_SESSION not in entry.data:
         try:
             await asyncio.wait_for(hub.connect(), timeout=5)
         except asyncio.TimeoutError as ex:

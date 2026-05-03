@@ -90,7 +90,10 @@ DEVICE_PLATFORM_MAP = {
     "elevator:floor": Platform.SENSOR.value,
     "electric": Platform.SWITCH.value,
     "electric:standbycut": Platform.SWITCH.value,
-    "gas": Platform.SWITCH.value,    
+    "gas": Platform.SWITCH.value,
+    # 지역난방 등 '방' 이 아닌 추가 난방 출처 — Heat-source readings beyond the
+    # household's controllable rooms (e.g. district heating supply temperature).
+    "heatsource": Platform.SENSOR.value,
 }
 
 @dataclass

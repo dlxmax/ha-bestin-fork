@@ -41,6 +41,15 @@ from .const import (
     DEFAULT_MAX_SEND_RETRY,
     DEFAULT_PACKET_VIEWER,
 )
+from .iparkapp import fetch_directory
+from .iparkapp_const import (
+    CONF_IPARKAPP_PASSWORD,
+    CONF_IPARKAPP_SITE,
+    CONF_IPARKAPP_USERNAME,
+    LOGIN_DATA_PATH,
+    LOGIN_LANDING_PATH,
+    USER_AGENT,
+)
 
 
 class ConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -61,11 +70,14 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
         return vol.All(vol.Coerce(int), vol.Range(min=min_int, max=max_int))
 
     async def async_step_user(
-        self, 
+        self,
         user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle a flow initialized by the user."""
-        return self.async_show_menu(step_id="user", menu_options=["local", "center"])
+        return self.async_show_menu(
+            step_id="user",
+            menu_options=["local", "center", "iparkapp"],
+        )
 
     async def async_step_local(
         self, 
@@ -252,6 +264,220 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders=description_placeholders
         )
+
+
+    # ------------------------------------------------------------------
+    # iPark 스마트홈 앱 — new gateway type config flow
+    # iPark Smarthome App config flow
+    # ------------------------------------------------------------------
+
+    async def async_step_iparkapp(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """단지 선택 단계 — Step 1: pick the apartment complex."""
+        errors: dict[str, str] = {}
+        session = async_create_clientsession(self.hass)
+
+        # 디렉터리를 로딩하고 셀렉터에 표시합니다 — Try the directory first.
+        directory = await fetch_directory(session)
+        site_choices = {
+            f"{item['sitecode']}|{item['ip']}": f"{item['sitename']} ({item['ip']})"
+            for item in directory
+            if item.get("sitecode") and item.get("ip") and item.get("sitename")
+        }
+
+        if user_input is not None:
+            picked = user_input.get("site")
+            if picked == "__manual__" or not directory:
+                # 매뉴얼 입력 단계로 전환 — Switch to manual entry.
+                return await self.async_step_iparkapp_manual()
+
+            sitecode, ip = picked.split("|", 1)
+            match = next(
+                (it for it in directory if it.get("sitecode") == sitecode), None
+            )
+            if match is None:
+                errors["base"] = "directory_lookup_failed"
+            else:
+                self.data = {CONF_IPARKAPP_SITE: match}
+                return await self.async_step_iparkapp_login()
+
+        if not site_choices:
+            # 디렉터리 응답 실패 시 매뉴얼로 폴백 — Fall back to manual on directory error.
+            return await self.async_step_iparkapp_manual()
+
+        # 매뉴얼 입력 옵션 추가 — Append a manual-entry option to the dropdown.
+        choices = dict(site_choices)
+        choices["__manual__"] = "직접 입력 / Enter manually"
+
+        data_schema = vol.Schema(
+            {
+                vol.Required("site"): selector(
+                    {
+                        "select": {
+                            "options": [
+                                {"value": k, "label": v} for k, v in choices.items()
+                            ],
+                            "mode": "dropdown",
+                        }
+                    }
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id="iparkapp",
+            data_schema=data_schema,
+            errors=errors,
+        )
+
+    async def async_step_iparkapp_manual(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """단지 정보 직접 입력 — Step 1b: manually enter the site fields."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            self.data = {
+                CONF_IPARKAPP_SITE: {
+                    "sitecode": user_input.get("sitecode", "").strip(),
+                    "sitename": user_input.get("sitename", "").strip()
+                                 or user_input["ip"].strip(),
+                    "ip": user_input["ip"].strip(),
+                    "weather": user_input.get("weather", "").strip(),
+                    "lat": user_input.get("lat", "").strip(),
+                    "lng": user_input.get("lng", "").strip(),
+                }
+            }
+            return await self.async_step_iparkapp_login()
+
+        data_schema = vol.Schema(
+            {
+                vol.Required("ip"): cv.string,
+                vol.Optional("sitename", default=""): cv.string,
+                vol.Optional("sitecode", default=""): cv.string,
+                vol.Optional("weather", default=""): cv.string,
+                vol.Optional("lat", default=""): cv.string,
+                vol.Optional("lng", default=""): cv.string,
+            }
+        )
+        return self.async_show_form(
+            step_id="iparkapp_manual",
+            data_schema=data_schema,
+            errors=errors,
+        )
+
+    async def async_step_iparkapp_login(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """로그인 단계 — Step 2: username + password (no token copy-paste needed)."""
+        errors: dict[str, str] = {}
+        description_placeholders: dict[str, str] | None = None
+
+        if user_input is not None:
+            session = async_create_clientsession(self.hass)
+            site = self.data[CONF_IPARKAPP_SITE]
+            ok, err = await self._iparkapp_verify_login(
+                session,
+                site,
+                user_input[CONF_USERNAME],
+                user_input[CONF_PASSWORD],
+            )
+            if not ok:
+                errors["base"] = err or "login_failed"
+                description_placeholders = {"err": err or ""}
+            else:
+                entry_data = {
+                    CONF_IPARKAPP_SITE: site,
+                    CONF_IPARKAPP_USERNAME: user_input[CONF_USERNAME],
+                    CONF_IPARKAPP_PASSWORD: user_input[CONF_PASSWORD],
+                }
+                # 단지 IP + 사용자명을 unique_id 로 사용 (한 사용자가 여러 단지 가능)
+                # Use site IP + username as the unique_id (a user can pair to >1 site).
+                unique_id = f"iparkapp:{site['ip']}:{user_input[CONF_USERNAME]}"
+                await self.async_set_unique_id(unique_id)
+                self._abort_if_unique_id_configured()
+                title = (
+                    f"{site.get('sitename') or site['ip']} "
+                    f"— {user_input[CONF_USERNAME]}"
+                )
+                return self.async_create_entry(title=title, data=entry_data)
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(CONF_USERNAME): cv.string,
+                vol.Required(CONF_PASSWORD): cv.string,
+            }
+        )
+        return self.async_show_form(
+            step_id="iparkapp_login",
+            data_schema=data_schema,
+            errors=errors,
+            description_placeholders=description_placeholders,
+        )
+
+    @staticmethod
+    async def _iparkapp_verify_login(
+        session,
+        site: dict[str, str],
+        username: str,
+        password: str,
+    ) -> tuple[bool, str | None]:
+        """로그인 확인 — Run the 2-step login to verify credentials.
+
+        Returns ``(True, None)`` on success or ``(False, error_key)`` where
+        ``error_key`` is one of the keys translated in the JSON files.
+        """
+        ip = site["ip"]
+        landing_url = f"http://{ip}{LOGIN_LANDING_PATH}"
+        landing_params = {
+            "device": "WA",
+            "login_ide": username,
+            "login_pwd": password,
+            "SITEWeather": site.get("weather", ""),
+            "SITELat": site.get("lat", ""),
+            "SITELng": site.get("lng", ""),
+        }
+        try:
+            async with session.get(
+                landing_url,
+                params=landing_params,
+                headers={"User-Agent": USER_AGENT},
+                timeout=10,
+            ) as resp:
+                if resp.status >= 400:
+                    return False, "network_error"
+
+            data_url = f"http://{ip}{LOGIN_DATA_PATH}"
+            data_body = {
+                "device": "WA",
+                "login_ide": username,
+                "login_pwd": password,
+                "siteweather": site.get("weather", ""),
+                "sitelat": site.get("lat", ""),
+                "sitelng": site.get("lng", ""),
+            }
+            async with session.post(
+                data_url,
+                data=data_body,
+                headers={
+                    "User-Agent": USER_AGENT,
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Accept": "application/json, text/javascript, */*; q=0.01",
+                },
+                timeout=10,
+            ) as resp:
+                payload = await resp.json(content_type=None)
+                if payload.get("ret") == "success":
+                    return True, None
+                return False, "login_failed"
+        except asyncio.TimeoutError:
+            return False, "connect_failed"
+        except Exception as ex:  # pragma: no cover — defensive
+            LOGGER.warning("iparkapp login verify exception: %s", ex)
+            return False, "unknown"
 
 
 class OptionsFlowHandler(OptionsFlow):
