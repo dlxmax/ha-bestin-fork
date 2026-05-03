@@ -26,6 +26,8 @@ SMART_HOME_APP = "iPark 스마트홈 앱 / iPark Smarthome App"
 CONF_IPARKAPP_SITE = "iparkapp_site"
 CONF_IPARKAPP_USERNAME = "iparkapp_username"
 CONF_IPARKAPP_PASSWORD = "iparkapp_password"
+# config_entry.options 에 저장될 키 — Keys persisted into ``ConfigEntry.options``
+CONF_PWM_MODE = "pwm_mode"  # off / eco / comfort / boost
 
 # CONF_IPARKAPP_SITE 값은 dict 형태로 저장되며 다음 필드를 포함합니다.
 # The ``iparkapp_site`` value is stored as a dict with the following fields,

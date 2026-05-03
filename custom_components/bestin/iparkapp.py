@@ -56,6 +56,7 @@ from .iparkapp_const import (
     CONF_IPARKAPP_PASSWORD,
     CONF_IPARKAPP_SITE,
     CONF_IPARKAPP_USERNAME,
+    CONF_PWM_MODE,
     DEFAULT_SESSION_REFRESH_MINUTES,
     DEVICE_CLASSES,
     ENERGY_CATEGORIES,
@@ -71,6 +72,12 @@ from .iparkapp_const import (
     DeviceClass,
     make_unit_id,
     normalize_status,
+)
+from .pwm import (
+    DEFAULT_PWM_MODE,
+    PWM_OFF,
+    PWM_VALID_MODES,
+    PwmController,
 )
 
 
@@ -110,6 +117,14 @@ class BestinIparkAppAPI:
 
         self.devices: dict[str, DeviceProfile] = {}
         self.tasks: list[Any] = []
+
+        # PWM 컨트롤러 — Optional slow-PWM thermostat layer.
+        pwm_mode = entry.options.get(CONF_PWM_MODE, DEFAULT_PWM_MODE)
+        if pwm_mode not in PWM_VALID_MODES:
+            pwm_mode = DEFAULT_PWM_MODE
+        self.pwm: PwmController | None = (
+            PwmController(self, pwm_mode) if pwm_mode != PWM_OFF else None
+        )
         # 속성 이름은 device.py 의 extra_state_attributes 가 읽는 것과 정확히
         # 일치해야 합니다 — must match exactly what device.py reads in
         # ``extra_state_attributes``, otherwise entities raise AttributeError
@@ -147,6 +162,8 @@ class BestinIparkAppAPI:
                 self.hass, self._scheduled_refresh, refresh_interval
             ),
         ]
+        if self.pwm is not None:
+            self.pwm.start(self.hass)
         LOGGER.info(
             "iPark 스마트홈 앱 연동 시작 — Started iParkApp client for %s (%s)",
             self.site.get("sitename", self.host),
@@ -161,6 +178,8 @@ class BestinIparkAppAPI:
             except Exception:  # pragma: no cover — defensive
                 pass
         self.tasks = []
+        if self.pwm is not None:
+            await self.pwm.stop()
         if not self.session.closed:
             await self.session.close()
 
@@ -528,6 +547,15 @@ class BestinIparkAppAPI:
                 "raw_mode": mode,
                 "raw_status": unit_status,
             }
+            # PWM 활성화 시 컨트롤러에 현재 온도 갱신 + 표시 setpoint 덮어쓰기.
+            # When PWM is active, feed current temp into the controller and
+            # override the displayed setpoint with the user's true value
+            # (the wallpad echo is manipulated during ON pulses).
+            if self.pwm is not None:
+                self.pwm.upsert_room(device_number, current, setpoint)
+                user_setpoint = self.pwm.get_displayed_setpoint(device_number)
+                if user_setpoint is not None:
+                    value[SERVICE_SET_TEMPERATURE] = user_setpoint
             # 'unit_cnt' 를 초과하는 방 번호는 제어 불가 — 별도 센서로 분리.
             # 정확한 의미는 단지마다 상이하며 확인되지 않았습니다.
             # Rooms beyond ``status_map.unit_cnt`` aren't controllable
@@ -633,6 +661,16 @@ class BestinIparkAppAPI:
             )
             return
 
+        # PWM 활성 시 온도조절기 명령은 컨트롤러로 라우팅됩니다.
+        # When PWM is active, route thermostat commands into the controller
+        # rather than pushing directly to the wallpad. The controller will
+        # then issue manipulated on/off pulses on its own tick loop.
+        if device_type == "temper" and self.pwm is not None:
+            target = _extract_temper_setpoint(value, kwargs)
+            if target is not None:
+                self.pwm.set_setpoint(room_id, target)
+                return
+
         cls = DEVICE_CLASSES[device_type]
         unit_id = (
             f"{sub_type}{pos_id or room_id}"
@@ -641,6 +679,16 @@ class BestinIparkAppAPI:
                   else make_unit_id(cls, pos_id or room_id))
         )
         await self._request_control(cls, unit_id, value, room_id)
+
+    async def send_temper_raw_command(self, room: int, ctrl_action: str) -> None:
+        """PWM 컨트롤러용 저수준 호출 — Low-level helper used by the PWM controller.
+
+        Bypasses the normal enqueue/PWM-routing logic so the controller can
+        send its own manipulated on/off pulses. ``ctrl_action`` is e.g. "on/27"
+        or "off/22" — exactly what the wallpad expects in ``req_ctrl_action``.
+        """
+        cls = DEVICE_CLASSES["temper"]
+        await self._request_control(cls, f"room{room}", ctrl_action, room)
 
     async def _request_control(
         self,
@@ -687,6 +735,38 @@ class BestinIparkAppAPI:
             LOGGER.warning(
                 "제어 실패 — %s %s=%s result=%s", cls.key, unit_id, value, result,
             )
+
+
+def _extract_temper_setpoint(value: Any, kwargs: dict | None) -> float | None:
+    """climate.py 에서 보낸 setpoint 를 어떤 형태로든 추출 — Pull a setpoint
+    out of whatever shape climate.py sent us.
+
+    The shared ``climate.py`` may pass either:
+      - ``room="on/22"`` or ``room="on/22/26"`` — slash-joined string
+      - ``set_temperature=22.0`` — numeric kwarg
+    """
+    candidates: list[Any] = []
+    if kwargs:
+        for k, v in kwargs.items():
+            if k in ("room", "set_temperature", SERVICE_SET_TEMPERATURE):
+                candidates.append(v)
+    candidates.append(value)
+    for cand in candidates:
+        if isinstance(cand, (int, float)):
+            return float(cand)
+        if isinstance(cand, str) and "/" in cand:
+            parts = cand.split("/")
+            if len(parts) >= 2:
+                try:
+                    return float(parts[1])
+                except ValueError:
+                    pass
+        if isinstance(cand, str):
+            try:
+                return float(cand)
+            except ValueError:
+                continue
+    return None
 
 
 # 디렉터리 조회 헬퍼는 config_flow 에서 사용합니다.

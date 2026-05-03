@@ -82,10 +82,12 @@
         "step": {
             "init": {
                 "title": "사용자 옵션 조정 / Adjust User Options",
+                "description": "iPark 스마트홈 앱 옵션의 경우, 'PWM 모드' 를 통해 객실별 슬로우 PWM 난방 제어를 활성화할 수 있습니다. 자세한 내용과 권장 LPM 밸브 설정은 [iPark 스마트홈 앱 가이드](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control-신규--new) 참조. / For the iPark Smarthome App option, the 'PWM mode' field enables slow software PWM control of ondol thermostats. See the [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control-신규--new) for details and recommended LPM valve settings.",
                 "data": {
                     "max_send_retry": "최대 전송 재시도 / Max Send Retry",
                     "packet_viewer": "패킷 뷰어 / Packet Viewer",
-                    "scan_interval": "스캔 간격 (분) / Scan Interval (minutes)"
+                    "scan_interval": "스캔 간격 (분) / Scan Interval (minutes)",
+                    "pwm_mode": "PWM 모드 (난방) / PWM mode (heating)"
                 }
             }
         }

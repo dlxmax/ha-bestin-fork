@@ -82,10 +82,12 @@
         "step": {
             "init": {
                 "title": "Adjust User Options",
+                "description": "For the iPark Smarthome App option, the 'PWM mode' field enables slow software PWM control of ondol thermostats. See the [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control-신규--new) for details and recommended LPM valve settings.",
                 "data": {
                     "max_send_retry": "Max Send Retry",
                     "packet_viewer": "Packet Viewer",
-                    "scan_interval": "Scan Interval (minutes)"
+                    "scan_interval": "Scan Interval (minutes)",
+                    "pwm_mode": "PWM mode (heating)"
                 }
             }
         }

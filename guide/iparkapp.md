@@ -105,6 +105,71 @@ i-parklife.com 디렉터리에서 60여 개 단지가 자동으로 조회됩니�
 - 도어락은 상태만 노출됩니다. 앱 자체가 원격 잠금/해제를 제공하지 않으므로 통합도 동일합니다.  
   *Door locks are status-only because the app itself does not expose remote lock/unlock.*
 
+## PWM 제어 / PWM control _(신규 / new)_
+
+기본 월패드 온도조절기는 객실별 이진 on/off 만 제공하므로, 바닥난방의 큰 열관성에 비해 제어가 너무 거칠어 과열·미달이 반복되기 쉽습니다. v1.4.0 부터 통합 옵션에서 **PWM 모드** 를 활성화하면 소프트웨어가 분 단위 사이클로 비례 제어를 적용합니다.  
+*The wallpad's per-room thermostat exposes only binary on/off, which is too coarse for a high-thermal-mass radiant floor — overshoot and undershoot are common. From v1.4.0 you can enable a **PWM mode** in the integration options; the software then layers a minutes-scale proportional cycle on top of the wallpad's on/off.*
+
+### 사용 방법 / Enabling
+
+1. **설정 → 기기 및 서비스 → BESTIN → 설정** 으로 들어갑니다.
+   *Go to **Settings → Devices & Services → BESTIN → Configure**.*
+2. **PWM 모드 / PWM mode** 항목에서 다음 중 하나를 선택합니다:
+   *Pick one of the **PWM mode** options:*
+
+   | 모드 / Mode | 사이클 / Cycle | 비례 대역 / Band | 용도 / Use |
+   |---|---|---|---|
+   | **꺼짐 / Off** | — | — | 기본 — 월패드 그대로 (PWM 없음). / Default — passthrough to wallpad, no PWM. |
+   | **Eco** | 20 분 / min | ±2.5°C | 저전력 / 야간 셋백. / Energy-saving / night setback. |
+   | **Comfort** | 15 분 / min | ±2.0°C | 일반 사용 권장. / Recommended for everyday use. |
+   | **Boost** | 10 분 / min | ±1.5°C | 빠른 가열 (귀가 직전, 외출 모드 해제 후). / Quick warm-up after vacancy. |
+
+3. PWM 활성화 후, HA 의 climate 엔티티에서 평소처럼 setpoint 를 설정하면 PWM 컨트롤러가 사용자의 의도값을 유지하면서 월패드의 on/off 를 일정 듀티로 토글합니다.  
+   *Once enabled, set the climate setpoint in HA as usual; the PWM controller holds the user's true setpoint and toggles the wallpad on/off at the appropriate duty cycle.*
+
+### 시스템 LPM 밸브 권장 설정 / Recommended system LPM valve setting
+
+본 통합이 설치된 단지의 일반적인 구성은 단지 1개의 시스템 전체용 수동 유량 밸브 (LPM) 가 모든 객실의 분배기 앞단에 있습니다. PWM 활성화 시 권장 설정:  
+*Most ondol systems with this integration have a single manual system-wide flow valve (LPM) upstream of all room manifolds. When enabling PWM, the recommended adjustment:*
+
+- **기존 'low flow' 위치보다 약 3–4 배 열기**, 또는 60–80 m² 5객실 가정 기준 **8–12 LPM 부근** (밸브 표시가 LPM 이 아닌 단순 단계라면 'high' 위치 부근).  
+  *Open the valve to **roughly 3–4× your old "low" setting**, or about **8–12 LPM** for a 60–80 m² 5-room apartment (or near the "high" mark if your valve isn't LPM-labelled).*
+- **이유:** PWM 은 동일 에너지를 더 짧은 펄스로 전달합니다. 펄스 동안의 유량 = (연속 운전 유량) ÷ (평균 듀티). 평균 듀티가 25–30% 이면 3–4× 가 등가 유량입니다.  
+  *Why: PWM compresses the same total energy into shorter pulses. Per-pulse flow = (continuous flow) ÷ (average duty). For an average duty of 25–30%, 3–4× is the equivalent flow.*
+- **확인 방법 (커미셔닝):** Comfort 모드로 추운 주말을 지나며 객실별 평균 듀티와 온도 변동을 관찰. 평균 듀티 ≥ 80% & 셋포인트 미달 → 더 열기. 평균 듀티 ≤ 30% & 과열 → 다시 조이기.  
+  *Commissioning: run a cold weekend on Comfort and watch per-room average duty + temperature variance. Average duty ≥ 80% AND undershoot → open more. Average duty ≤ 30% AND overshoot → close down.*
+
+자세한 분석은 `temp/research/ondol_pwm_research.md` 의 §9 참조 (gitignored — 로컬에서만 확인 가능).  
+*Full analysis is in `temp/research/ondol_pwm_research.md` §9 (gitignored — local only).*
+
+### 알고리즘 — Algorithm (참고 / for reference)
+
+연구된 비례 제어식 — researched proportional formula:
+
+```
+temp_error = setpoint - current_temp
+duty% = clamp(0, 100, (temp_error / proportional_band) × 100)
+if 0 < temp_error < 0.5°C and duty > 50%:
+    duty *= 0.8   # anti-overshoot near setpoint
+```
+
+추가 제약 — additional constraints:
+- **최소 on 시간 / minimum on:** 2분 — 액추에이터·보일러 보호. *valve/boiler protection.*
+- **최소 off 시간 / minimum off:** 30–90초 (모드별) — 바닥 열관성이 안정될 시간. *let floor mass settle.*
+- **데드밴드 / deadband:** 듀티 변화 5–8% 미만이면 명령 미전송 — 채터 방지. *no command unless duty changes by ≥5–8%.*
+
+근거: IEA ECES Task 32 (2018), ASHRAE HVAC Applications (2019), EN 12531, VDI 6030, OJ Electronics OCD5, Honeywell Bulletin 41-353, Uponor Design Guide (2020). 인용은 로컬 연구 파일 참조.  
+*Sources: IEA ECES Task 32 (2018), ASHRAE HVAC Applications (2019), EN 12531, VDI 6030, OJ Electronics OCD5, Honeywell Bulletin 41-353, Uponor Design Guide (2020). See the local research file for full citations.*
+
+### 알려진 제한 / Known caveats
+
+- **월패드 setpoint 가 일시적으로 조작됩니다.** PWM ON 펄스 동안 월패드 화면에는 사용자가 설정한 값보다 높은 setpoint 가 잠시 표시됩니다 (강제 발열을 위해 필요). HA UI 는 항상 사용자의 실제 의도값을 보여줍니다.  
+  *The wallpad's setpoint is momentarily manipulated. During the ON pulse the wallpad face shows a setpoint elevated above your true target (needed to force the wallpad to call for heat). HA always shows your real intended value.*
+- **HA 재시작 시 setpoint 재초기화.** PWM 컨트롤러는 메모리에만 상태를 보관합니다. 재시작 후 첫 폴링에서 월패드의 (조작된) 값을 채택할 수 있으니, 재시작 직후 HA 에서 한 번 setpoint 를 다시 지정해 주세요.  
+  *PWM controller state lives in memory only. After an HA restart it may briefly adopt the wallpad's (manipulated) echo as its initial setpoint — re-set the desired temperature in HA after restart.*
+- **다른 가족 구성원의 월패드 직접 조작.** 누가 월패드 패널 앞에서 setpoint 를 바꾸면 PWM 이 그것을 다음 폴링에서 흡수합니다. 의도된 값이 아니면 HA 에서 다시 설정해 주세요.  
+  *If someone changes the setpoint at the wallpad panel directly, the PWM controller will adopt it on the next poll — re-set in HA if not desired.*
+
 ## 디버깅 / Debugging
 
 문제가 있는 경우 `configuration.yaml` 에 아래 내용을 추가하고 HA 를 재시작하면 상세 로그를 얻을 수 있습니다.  

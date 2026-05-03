@@ -489,10 +489,38 @@ class OptionsFlowHandler(OptionsFlow):
     
     def get_data_schema(self) -> vol.Schema:
         """Get the appropriate schema based on the entry data."""
+        # iPark 스마트홈 앱 — new gateway type takes its own option panel.
+        if CONF_IPARKAPP_SITE in self.entry.data:
+            return vol.Schema(
+                {
+                    vol.Required(
+                        CONF_SCAN_INTERVAL,
+                        default=self.entry.options.get(
+                            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+                        ),
+                    ): cv.positive_int,
+                    vol.Required(
+                        "pwm_mode",
+                        default=self.entry.options.get("pwm_mode", "off"),
+                    ): selector(
+                        {
+                            "select": {
+                                "options": [
+                                    {"value": "off", "label": "꺼짐 / Off (passthrough)"},
+                                    {"value": "eco", "label": "Eco (20분 사이클 / 20-min cycle)"},
+                                    {"value": "comfort", "label": "Comfort (15분 사이클 / 15-min cycle)"},
+                                    {"value": "boost", "label": "Boost (10분 사이클 / 10-min cycle)"},
+                                ],
+                                "mode": "dropdown",
+                            }
+                        }
+                    ),
+                }
+            )
         if CONF_SESSION not in self.entry.data:
             return vol.Schema({
                 vol.Required(
-                    "max_send_retry", 
+                    "max_send_retry",
                     default=self.entry.options.get("max_send_retry", DEFAULT_MAX_SEND_RETRY)
                 ): ConfigFlow.int_between(1, 30),
                 vol.Required(
