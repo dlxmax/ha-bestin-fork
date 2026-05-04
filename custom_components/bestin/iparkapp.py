@@ -36,8 +36,9 @@ from homeassistant.components.climate.const import (
     SERVICE_SET_TEMPERATURE,
     HVACMode,
 )
+from homeassistant.components.fan import ATTR_PRESET_MODE
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_SCAN_INTERVAL
+from homeassistant.const import ATTR_STATE, CONF_SCAN_INTERVAL, WIND_SPEED
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
 
@@ -51,6 +52,9 @@ from .const import (
     PLATFORM_SIGNAL_MAP,
     SINGLE_CHANNEL_TYPES,
     SINGLE_ROOM_TYPES,
+    SPEED_STR_HIGH,
+    SPEED_STR_LOW,
+    SPEED_STR_MEDIUM,
     DeviceInfo,
     DeviceProfile,
 )
@@ -601,6 +605,10 @@ class BestinIparkAppAPI:
             sub_id = None
         elif unit_num.startswith("room"):
             sub_id = None
+        elif unit_num in ("null", ""):
+            # away 모드는 unit_num="null" 로 응답합니다 — single-instance.
+            # away mode arrives with unit_num="null" — single-instance device.
+            sub_id = None
         else:
             sub_id = unit_num or None
 
@@ -668,6 +676,46 @@ class BestinIparkAppAPI:
                     "energy", 1, sub_id, current if current is not None else value
                 )
                 return
+
+        # 환기팬은 dict 형태로 펼쳐 fan.py 가 speed 슬라이더와 preset 드롭다운을
+        # 정상 표시하도록 합니다 (center.py:597-603 와 같은 shape). v1.4.5 까지
+        # 는 normalize_status() 가 반환한 bool/문자열을 그대로 넘겨, 모든 iparkapp
+        # 사용자의 fan 엔티티가 power-only 로 작동했습니다 (서버는 low/mid/high
+        # 를 지원함에도). NV preset 은 RS-485 전용 개념이므로 미설정.
+        # Reshape ventil status to the dict layout fan.py expects so the speed
+        # slider works (matches center.py:597-603). Up to v1.4.5 we passed
+        # bare bool/string from normalize_status, leaving every iparkapp ventil
+        # entity stuck on/off-only despite the server supporting "low"/"mid"/
+        # "high". Natural-ventilation preset is RS-485-only so we don't expose
+        # ATTR_PRESET_MODE/MODES here — that keeps PRESET_MODE feature off.
+        # 외출(away) 모드 — server reports "normal" / "unoccupied".
+        # normalize_status() already maps "unoccupied" → True, but "normal"
+        # is not in its truth table and falls through unchanged. Pin both
+        # explicitly so the binary_sensor sees a clean bool.
+        if cls.key == "mode":
+            raw = (unit_status or "").strip().lower()
+            value = raw == "unoccupied"
+
+        if cls.key == "ventil":
+            raw = (unit_status or "").strip().lower()
+            speed_strs = {"low", "mid", "middle", "high"}
+            if raw == "middle":
+                raw = "mid"
+            is_off = raw in ("off", "")
+            current_speed = raw if raw in {"low", "mid", "high"} else "off"
+            value = {
+                ATTR_STATE: not is_off,
+                WIND_SPEED: current_speed,
+                "speed_list": [SPEED_STR_LOW, SPEED_STR_MEDIUM, SPEED_STR_HIGH],
+                # HA fan.state_attributes 가 PRESET_MODE feature 와 무관하게
+                # ``self.preset_mode`` 를 항상 호출하므로 None 으로 미리 채워
+                # KeyError 를 방지합니다 (center.py:602 와 동일 패턴).
+                # HA's fan.state_attributes always reads ``self.preset_mode``
+                # regardless of whether PRESET_MODE feature is advertised, so
+                # populate the key with None up front to avoid KeyError
+                # (matches center.py:602).
+                ATTR_PRESET_MODE: None,
+            }
 
         self._set_device(alias, device_number, sub_id, value)
 
@@ -820,6 +868,21 @@ class BestinIparkAppAPI:
                 return
 
         cls = DEVICE_CLASSES[device_type]
+
+        # 환기팬 명령은 항상 unit_pattern="ventil" 을 사용해야 합니다 (서버는
+        # ``req_unit_num=set_percentage1`` 같은 합성된 키를 인식하지 못함). HA
+        # 의 fan 엔티티가 ``set_percentage="low"`` 처럼 보내든 ``"on"`` 같은
+        # positional 값을 보내든, ctrl_action 으로 모두 정상 변환됩니다.
+        # The ventil endpoint always wants ``req_unit_num="ventil"`` —
+        # synthesised keys like ``"set_percentage1"`` get rejected. fan.py
+        # may call ``enqueue_command(set_percentage="low")`` (the percentage
+        # has been pre-translated to a speed string in fan.py:async_set_
+        # percentage) or ``enqueue_command("on" / "off")``; in both cases
+        # we forward whichever value we have as the ctrl_action.
+        if device_type == "ventil":
+            await self._request_control(cls, "ventil", value, room_id)
+            return
+
         unit_id = (
             f"{sub_type}{pos_id or room_id}"
             if sub_type

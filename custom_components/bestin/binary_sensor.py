@@ -86,6 +86,13 @@ class BestinBinarySensor(BestinDevice, BinarySensorEntity):
             # label. We set the entity name to "Door Lock" so HA composes
             # "BESTIN Door Lock" as the final friendly_name.
             self._attr_name = FRIENDLY_TYPE_NAMES.get("doorlock", "Door Lock")
+        elif device_type == "mode":
+            # 외출(away) 모드 — iparkapp 게이트웨이에서만 노출됨.  alarm 시스템
+            # 의 무장 상태를 표시. True = 외출(무장), False = 재실(해제).
+            # iparkapp away/alarm-arm state. True = armed (unoccupied),
+            # False = disarmed (normal). No HA device_class fits perfectly;
+            # leave unset so HA renders a generic on/off binary sensor.
+            self._attr_name = FRIENDLY_TYPE_NAMES.get("mode", "Away Mode")
 
     @property
     def is_on(self) -> bool:

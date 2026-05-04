@@ -7,7 +7,7 @@ from homeassistant.const import Platform
 
 DOMAIN = "bestin"
 NAME = "BESTIN"
-VERSION = "1.4.5"
+VERSION = "1.4.6"
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -62,6 +62,7 @@ MAIN_DEVICES: list[str] = [
     "gas",
     "doorlock",
     "elevator",
+    "mode",
 ]
 
 PLATFORM_SIGNAL_MAP = {
@@ -91,6 +92,16 @@ DEVICE_PLATFORM_MAP = {
     "elevator": Platform.SWITCH.value,
     "elevator:direction": Platform.SENSOR.value,
     "elevator:floor": Platform.SENSOR.value,
+    # 외출(away) 모드 — iparkapp 게이트웨이에서만 노출됨.  서버는 "normal" /
+    # "unoccupied" 두 상태를 ``remote_access_mode`` 로 보고하며, 활성화 명령
+    # ``unoccupied`` 만 받습니다 (해제는 키패드의 비밀번호 입력이 필요한
+    # 보안 모델). v1.4.6: 읽기 전용 binary_sensor 로 노출. arm 버튼은 v1.4.7
+    # 이후 별도 platform 추가 검토 예정.
+    # iparkapp-only away/alarm-arm state. Server reports "normal" or
+    # "unoccupied" via ``remote_access_mode`` and accepts only the arm
+    # command — disarming requires the keypad passcode by design. Exposed
+    # read-only here; a separate arm button is on the v1.4.7+ shortlist.
+    "mode": Platform.BINARY_SENSOR.value,
     "electric": Platform.SWITCH.value,
     "electric:standbycut": Platform.SWITCH.value,
     "gas": Platform.SWITCH.value,

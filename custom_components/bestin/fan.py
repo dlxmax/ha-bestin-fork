@@ -69,16 +69,15 @@ class BestinFan(BestinDevice, FanEntity):
     def __init__(self, device, hub) -> None:
         """Initialize the fan."""
         super().__init__(device, hub)
-        # iparkapp 의 ventil 은 초기 상태가 bool ("on"/"off") 이고, center /
-        # controller 는 dict (speed_list, preset_modes 등) 를 보냅니다. v1.4.4
-        # 까지는 항상 dict 를 가정해 ``state.get(...)`` 가 bool 위에서 즉시
-        # AttributeError 로 깨졌고, 결과적으로 모든 iparkapp 사용자의 fan 플랫폼
-        # 등록이 통째로 실패했습니다 (다른 게이트웨이의 fan/ventil 은 영향 없음).
-        # The ventil entity arrives as either a bool (iparkapp — just on/off)
-        # or a dict (center / controller — with speed_list / preset_modes).
-        # Up to v1.4.4 the unconditional ``state.get(...)`` raised
-        # AttributeError on the bool form and broke the entire fan platform
-        # for every iparkapp user. Be defensive and degrade gracefully.
+        # 모든 게이트웨이가 dict state 를 보냅니다 (controller / center 는 원래
+        # 부터, iparkapp 는 v1.4.6 부터 — 그 전에는 normalize_status 로 bool
+        # 만 넘어와 fan 플랫폼이 통째로 깨졌습니다). isinstance 가드는 잠재적
+        # 비-dict state 에 대한 cheap insurance 로 유지.
+        # All gateways emit dict state for ventil now (controller / center
+        # always have; iparkapp from v1.4.6 — earlier versions passed bare
+        # bool from normalize_status which broke the entire fan platform).
+        # Keep the isinstance guard as cheap insurance against future
+        # regressions.
         self._version_exists = getattr(hub.api, CONF_VERSION, False)
 
         self._supported_features = (
