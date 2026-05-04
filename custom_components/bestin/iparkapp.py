@@ -461,21 +461,42 @@ class BestinIparkAppAPI:
             device.info.state = status
             device.update_callbacks()
 
-    def _optimistic_temper_state(self, room_id: int, **fields: Any) -> None:
-        """클라이언트 사이드 즉시 반영 — Push state delta to a temper entity.
+    def _optimistic_state(self, full_device_id: str, new_state: Any) -> None:
+        """클라이언트 사이드 즉시 반영 — Push state to a device entity.
 
-        서버는 다음 폴링 (≤30초) 에 새 상태를 echo 해주지만, 사용자 클릭
-        과 화면 갱신 사이의 visible gap 을 줄이기 위해 즉시 갱신합니다.
-        Server will echo the change on the next 30s poll, but updating the
-        local state right after the command closes the visible click→
-        feedback gap from "RTT + poll cadence" down to instant.
+        제어 명령 후 ``_request_control`` 의 echo 가 ~1.7 s HTTP RTT 안에
+        실제 상태를 반영하지만, 사용자 클릭과 화면 갱신 사이의 가시 지연을
+        제거하기 위해 명령 송신 직전에 예상 상태를 즉시 적용합니다. 서버
+        echo 가 도착하면 진실값으로 덮어쓰여지므로 부정확한 optimism 도
+        결국 자동 보정됩니다 (e.g. 명령 실패 시 다음 echo / 폴링이 원래
+        상태로 되돌림).
+
+        Push the predicted post-command state to the local DeviceProfile
+        before the network round-trip so HA UI flips in <50 ms instead of
+        waiting for the ~1.7 s server echo. ``_request_control``'s echo
+        path will overwrite with ground truth as soon as the response
+        arrives, so a wrong optimistic guess self-corrects on the next
+        echo or poll.
+
+        For dict states, ``new_state`` should also be a dict — keys are
+        merged on top of the existing state. For scalar bool/string states
+        (lights, switches), ``new_state`` replaces the value entirely.
         """
-        full_id = f"{BRAND_PREFIX}_temper_{room_id}"
-        device = self.devices.get(full_id)
-        if device is None or not isinstance(device.info.state, dict):
+        device = self.devices.get(full_device_id)
+        if device is None:
             return
-        device.info.state = {**device.info.state, **fields}
+        existing = device.info.state
+        if isinstance(existing, dict) and isinstance(new_state, dict):
+            device.info.state = {**existing, **new_state}
+        else:
+            device.info.state = new_state
         device.update_callbacks()
+
+    def _optimistic_temper_state(self, room_id: int, **fields: Any) -> None:
+        """Convenience wrapper for temper entities — keeps the v1.4.3 call
+        sites working unchanged while the heavy lifting moves to
+        ``_optimistic_state``."""
+        self._optimistic_state(f"{BRAND_PREFIX}_temper_{room_id}", dict(fields))
 
     def get_devices_from_domain(self, domain: str) -> list:
         """플랫폼별 등록된 장치 목록을 반환합니다 — Get devices for a HA platform.
@@ -880,6 +901,9 @@ class BestinIparkAppAPI:
         # percentage) or ``enqueue_command("on" / "off")``; in both cases
         # we forward whichever value we have as the ctrl_action.
         if device_type == "ventil":
+            self._optimistic_state(
+                f"{BRAND_PREFIX}_ventil_1", _predict_ventil_state(value)
+            )
             await self._request_control(cls, "ventil", value, room_id)
             return
 
@@ -889,6 +913,21 @@ class BestinIparkAppAPI:
             else (cls.unit_pattern if cls.unit_pattern and "{n}" not in cls.unit_pattern
                   else make_unit_id(cls, pos_id or room_id))
         )
+        # 기타 장치는 bool / 단순 문자열 상태이므로 명령 값을 그대로 적용해
+        # 클릭→화면 갱신 지연을 ~1.7 s HTTP RTT 에서 <50 ms 로 단축합니다.
+        # ``_request_control`` 이 응답 echo 로 진실값을 한 번 더 덮어쓰므로
+        # 잘못된 optimism 도 자동 보정됩니다.
+        # Other devices (lights, switches, gas) carry bool/string state. Apply
+        # the command's predicted post-state so HA UI flips in <50 ms instead
+        # of the ~1.7 s server round-trip; ``_request_control``'s echo path
+        # corrects any bad guess on the response.
+        predicted = _predict_scalar_state(value)
+        if predicted is not None:
+            full_id = (
+                f"{BRAND_PREFIX}_{device_type}_{room_id}"
+                + (f"_{pos_id}" if pos_id else "")
+            )
+            self._optimistic_state(full_id, predicted)
         await self._request_control(cls, unit_id, value, room_id)
 
     async def send_temper_raw_command(self, room: int, ctrl_action: str) -> None:
@@ -946,6 +985,54 @@ class BestinIparkAppAPI:
             LOGGER.warning(
                 "제어 실패 — %s %s=%s result=%s", cls.key, unit_id, value, result,
             )
+
+
+def _predict_scalar_state(value: Any) -> Any:
+    """제어 명령으로부터 다음 bool/문자열 상태 예측 — Predict the post-state
+    of a non-temper, non-ventil device from the outgoing command value.
+
+    Used by ``enqueue_command`` to push an optimistic update before the
+    network round-trip. Returns ``None`` when we can't safely guess (the
+    server's echo will then fill in within ~1.7 s).
+
+    Mapping mirrors ``normalize_status`` in iparkapp_const so the optimistic
+    write matches what the server would echo back.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("on", "open", "set", "unoccupied"):
+            return True
+        if v in ("off", "closed", "close", "unset", "occupied"):
+            return False
+        # smartlight 등 dict 형 명령은 예측을 시도하지 않음 — return None
+        return None
+    return None
+
+
+def _predict_ventil_state(value: Any) -> dict[str, Any]:
+    """환기팬 상태 예측 — Predict the post-state dict for a ventil command.
+
+    fan.py 가 ``"on"``/``"off"`` 또는 ``"low"``/``"mid"``/``"high"`` 를 보냅
+    니다 (set_percentage 가 미리 speed string 으로 변환됨). 우리는 그에 따라
+    iparkapp.dispatch_status 가 만드는 것과 같은 모양의 dict 를 만듭니다.
+    """
+    raw = (str(value) if value is not None else "").strip().lower()
+    if raw == "middle":
+        raw = "mid"
+    is_on = raw in ("on", "low", "mid", "high")
+    current_speed = raw if raw in ("low", "mid", "high") else (
+        "low" if is_on else "off"
+    )
+    return {
+        ATTR_STATE: is_on,
+        WIND_SPEED: current_speed,
+        "speed_list": [SPEED_STR_LOW, SPEED_STR_MEDIUM, SPEED_STR_HIGH],
+        ATTR_PRESET_MODE: None,
+    }
 
 
 def _extract_preset_mode(kwargs: dict | None) -> str | None:
