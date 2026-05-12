@@ -10,15 +10,15 @@ blueprint:
     is `home`. Works with any Home Assistant person/device_tracker entity
     (Companion app, router-based tracker, etc.).
 
-    > **참고:** Away 셋포인트 는 16°C (PWM 사이클 25분, iparkapp 게이트웨이 한정).
+    > **참고:** Away 셋포인트 는 16°C (슬로우 듀티 사이클 25분 주기, iparkapp 게이트웨이 한정).
     > 더 절약하고 싶다면 Vacation (13°C) 로 바꿔도 됩니다 — 다만 누가 빨리
     > 돌아오면 회복이 느려집니다. 자세한 모드 표는
-    > [iPark 스마트홈 앱 가이드](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control)
+    > [iPark 스마트홈 앱 가이드](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#슬로우-듀티-사이클-제어--slow-duty-cycle-control)
     > 참조.
-    > Away setpoint is 16°C (25-min PWM cycle on iparkapp). For deeper
+    > Away setpoint is 16°C (25-min slow duty cycle on iparkapp). For deeper
     > savings switch to Vacation (13°C), but recovery will be slower if
     > someone returns soon. Mode table in the
-    > [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control).
+    > [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#슬로우-듀티-사이클-제어--slow-duty-cycle-control).
 
   domain: automation
   source_url: https://github.com/dlxmax/ha-bestin-fork/blob/main/blueprints/automation/bestin/away_when_empty.yaml

@@ -304,11 +304,11 @@ class BestinController:
         pos_id = 0
         sub_type = None
 
-        # 표준 HA preset_mode → 정규 setpoint 송신 (PWM 은 iparkapp 한정).
+        # 표준 HA preset_mode → 정규 setpoint 송신 (듀티 사이클은 iparkapp 한정).
         # Standard HA preset_mode → push the canonical setpoint to the
-        # wallpad. PWM cycling itself stays iparkapp-only for now.
+        # wallpad. Slow duty-cycle modulation stays iparkapp-only for now.
         if kwargs and ("preset_mode" in kwargs or "preset" in kwargs):
-            from .pwm import PRESET_PROFILES
+            from .duty_cycle import PRESET_PROFILES
             preset = kwargs.get("preset_mode") or kwargs.get("preset")
             profile = PRESET_PROFILES.get(preset)
             if profile is None:
@@ -437,13 +437,13 @@ class BestinController:
         current_temperature = int.from_bytes(packet[8:10], byteorder="big") / 10.0
         hvac_mode = HVACMode.HEAT if is_heating else HVACMode.OFF
 
-        from .pwm import PRESET_MODES_DEFAULT
+        from .duty_cycle import PRESET_MODES_DEFAULT
         thermostat_state = {
             ATTR_HVAC_MODE: hvac_mode,
             SERVICE_SET_TEMPERATURE: target_temperature,
             ATTR_CURRENT_TEMPERATURE: current_temperature,
-            # 표준 HA preset_mode 지원 (PWM 없이 setpoint 만 변경).
-            # Standard HA preset_mode (setpoint-only; no PWM cycling on this gateway).
+            # 표준 HA preset_mode 지원 (듀티 사이클 없이 setpoint 만 변경).
+            # Standard HA preset_mode (setpoint-only; no duty-cycle modulation on this gateway).
             "preset_modes": list(PRESET_MODES_DEFAULT),
         }
         return room_id, thermostat_state

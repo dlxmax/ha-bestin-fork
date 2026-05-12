@@ -20,13 +20,16 @@ blueprint:
     3. 휴가 갈 때 도우미의 두 시각을 채우면 자동 적용됩니다. 비우면 비활성.
        *To activate, fill in both helper datetimes; to cancel, clear them.*
 
-    > **iPark 스마트홈 앱 옵션 사용 시:** 단지 LPM 유량 밸브를 'high' 또는 기존
-    > 'low' 의 3-4 배로 열어두세요. 자세한 내용은
-    > [iPark 스마트홈 앱 가이드](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control)
+    > **iPark 스마트홈 앱 옵션 사용 시:** 싱크대 아래 (온돌 전동 밸브 옆) 의
+    > 단지 물 유량 밸브 (LPM 눈금) 를 'high' 또는 기존 'low' 의 3-4 배로
+    > 열어두세요. 자세한 내용은
+    > [iPark 스마트홈 앱 가이드](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#슬로우-듀티-사이클-제어--slow-duty-cycle-control)
     > 참조.
-    > **iPark Smarthome App option:** open your LPM valve to "high" or
-    > 3-4× its old "low" setting. See the
-    > [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control).
+    > **iPark Smarthome App option:** open your manual water-flow valve
+    > (usually under the kitchen sink next to the ondol electric control
+    > valves; dial is often LPM-marked) to "high" or 3-4× its old "low"
+    > setting. See the
+    > [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#슬로우-듀티-사이클-제어--slow-duty-cycle-control).
 
   domain: automation
   source_url: https://github.com/dlxmax/ha-bestin-fork/blob/main/blueprints/automation/bestin/vacation_window.yaml

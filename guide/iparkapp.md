@@ -105,10 +105,13 @@ i-parklife.com 디렉터리에서 60여 개 단지가 자동으로 조회됩니�
 - 도어락은 상태만 노출됩니다. 앱 자체가 원격 잠금/해제를 제공하지 않으므로 통합도 동일합니다.  
   *Door locks are status-only because the app itself does not expose remote lock/unlock.*
 
-## PWM 제어 / PWM control
+## 슬로우 듀티 사이클 제어 / Slow duty-cycle control
 
-월패드의 객실별 이진 on/off + setpoint 만으로는 바닥난방의 큰 열관성에 비해 너무 거친 제어가 됩니다. v1.4 부터 각 온도조절기가 표준 HA **프리셋 (preset_mode)** 을 객실별로 노출합니다. iPark 스마트홈 앱 옵션에서는 프리셋이 슬로우 PWM 사이클을 함께 트리거합니다 (다른 게이트웨이는 setpoint 만 변경됩니다).  
-*The wallpad's per-room binary on/off + setpoint is too coarse for high-thermal-mass radiant floors. From v1.4, each thermostat exposes the standard HA **preset_mode** dropdown per room. On the iPark Smarthome App option, presets also trigger a slow PWM cycle (on the other gateways, presets just change the setpoint).*
+> 명명 노트 / naming note: 우리가 적용하는 것은 분 단위 주기의 **시간 비례 (time-proportional) 슬로우 듀티 사이클** 입니다. 빠른 PWM 이 아닙니다 — 이전 버전에서 "PWM" 으로 부르던 기능과 동일합니다 (v1.4.8 에서 명칭만 정리).  
+> *What we apply is a **minutes-scale time-proportional duty cycle**, not the high-frequency PWM the word usually evokes. Same mechanism the docs previously called "PWM" — v1.4.8 only renamed the term.*
+
+월패드의 객실별 이진 on/off + setpoint 만으로는 바닥난방의 큰 열관성에 비해 너무 거친 제어가 됩니다. v1.4 부터 각 온도조절기가 표준 HA **프리셋 (preset_mode)** 을 객실별로 노출합니다. iPark 스마트홈 앱 옵션에서는 프리셋이 슬로우 듀티 사이클을 함께 트리거합니다 (다른 게이트웨이는 setpoint 만 변경됩니다).  
+*The wallpad's per-room binary on/off + setpoint is too coarse for high-thermal-mass radiant floors. From v1.4, each thermostat exposes the standard HA **preset_mode** dropdown per room. On the iPark Smarthome App option, presets also trigger a slow duty-cycle (time-proportional) modulation (on the other gateways, presets just change the setpoint).*
 
 ### 핵심 결론 / Key takeaways
 
@@ -118,14 +121,14 @@ i-parklife.com 디렉터리에서 60여 개 단지가 자동으로 조회됩니�
    *Per-room presets — bedroom on Sleep while living room stays on Comfort.*
 3. **휴가 일정은 서비스 호출로** — `bestin.set_vacation_window` 가 시작·복귀 시각을 받아 자동으로 프리셋을 전환합니다.  
    *Vacation date scheduling via `bestin.set_vacation_window` — pass start + end datetimes; presets transition automatically.*
-4. **솔직한 경제성**: PWM 의 순수한 절감 효과는 5-15% 범위, 통상 8-12% 정도. 핵심 절감 동력은 PWM 자체보다 **PWM 덕분에 야간 setback 을 실용적으로 사용할 수 있게 되는 점** 입니다. 자세한 수치는 §11 (로컬 연구 파일) 참조.  
-   *Honest economics: pure PWM savings land at 5-15 % (typically 8-12 %). The bigger lever is **PWM making night setback practical** — it's the setback that saves money, PWM just removes the slow-recovery pain. Full numbers in research file §11.*
+4. **솔직한 경제성**: 슬로우 듀티 사이클 자체의 순수한 절감 효과는 5-15% 범위, 통상 8-12% 정도. 핵심 절감 동력은 듀티 사이클 자체보다 **듀티 사이클 덕분에 야간 setback 을 실용적으로 사용할 수 있게 되는 점** 입니다. 자세한 수치는 §11 (로컬 연구 파일) 참조.  
+   *Honest economics: pure duty-cycle savings land at 5-15 % (typically 8-12 %). The bigger lever is **the duty cycle making night setback practical** — it's the setback that saves money, the duty cycle just removes the slow-recovery pain. Full numbers in research file §11.*
 
 ### 프리셋 / Presets
 
-| 프리셋 / Preset | 셋포인트 / Setpoint | PWM 사이클 / Cycle (iparkapp only) | 용도 / Use case | 절감 (vs 22°C 항시) / Savings vs 22°C continuous |
+| 프리셋 / Preset | 셋포인트 / Setpoint | 듀티 사이클 주기 / Cycle (iparkapp only) | 용도 / Use case | 절감 (vs 22°C 항시) / Savings vs 22°C continuous |
 |---|---|---|---|---|
-| **None** _(기본 / default)_ | 사용자 지정 / user | — (passthrough) | PWM 없음. 월패드 기본 동작. / No PWM; wallpad default. | 0 % |
+| **None** _(기본 / default)_ | 사용자 지정 / user | — (passthrough) | 듀티 사이클 없음. 월패드 기본 동작. / No duty cycling; wallpad default. | 0 % |
 | **Comfort / 쾌적** | 22°C | 15 분 / min | 활동 시간대. / Active occupancy. | baseline |
 | **Eco / 에코** | 20°C | 20 분 / min | 절감 우선. / Cost-conscious. | -3 to -5 % |
 | **Sleep / 수면** | 17°C | 25 분 / min | 야간 8-10 시간. 8시간 OFF 보다 안전 + 효율. / Overnight 8-10 h. Safer & more efficient than full-off. | -10 to -15 % |
@@ -137,20 +140,20 @@ i-parklife.com 디렉터리에서 60여 개 단지가 자동으로 조회됩니�
 > **8시간 완전 OFF 습관에 대해 / On the "8 hours fully off" habit:** 안전하지만 최적은 아닙니다. 바닥이 너무 식으면 아침 회복 에너지가 절감을 상쇄하고, 차가운 바닥에 결로가 생길 수 있습니다. **Sleep 모드 (17°C)** 가 같은 8시간 동안 더 적은 에너지를 쓰면서 아침에 빠르게 회복합니다.  
 > *Safe but not optimal. Letting the floor get too cold means morning rebound energy cancels the savings, and the cold floor can develop condensation. **Sleep mode (17 °C)** uses less energy over the same 8 hours and recovers faster in the morning.*
 
-### 시스템 LPM 밸브 권장 설정 / Recommended system LPM valve setting **(중요 / important)**
+### 온돌 물 유량 밸브 권장 설정 / Recommended ondol water-flow valve setting **(중요 / important)**
 
-본 통합이 설치된 단지의 일반적인 구성은 단지 1개의 시스템 전체용 수동 유량 밸브 (LPM, 분당 리터) 가 모든 객실 분배기 앞단에 있습니다. **PWM 사용 시 이 밸브를 다시 조정해야 합니다.**  
-*Most ondol systems have a single manual system-wide flow valve (LPM, litres-per-minute) upstream of all room manifolds. **When using PWM you must re-adjust it.***
+본 통합이 설치된 단지의 일반적인 구성은 단지 1개의 **수동 물 유량 밸브** (분당 리터, LPM 단위로 표시되는 경우가 많음) 가 모든 객실 분배기 앞단에 있습니다. 보통 **싱크대 아래** 의 객실별 온돌 전동 밸브 묶음 옆에 있습니다. **슬로우 듀티 사이클 사용 시 이 밸브를 다시 조정해야 합니다.**  
+*Most ondol systems have a single **manual water-flow valve** (often dial-marked in LPM = litres-per-minute) upstream of all room manifolds. It's usually **under the kitchen sink**, next to the per-room ondol electric control valves. **When you turn on slow duty cycling you must re-adjust it.***
 
-- **기존 'low flow' 위치보다 약 3-4 배 열기** — 또는 60-80 m² 5객실 아파트 기준 **8-12 LPM 부근**. 밸브 표시가 LPM 이 아닌 단순 단계라면 'high' 위치 근처.  
-  *Open it to **roughly 3-4× your old "low" position**, or about **8-12 LPM** for a 60-80 m² 5-room apartment. Near 'high' if the valve isn't LPM-marked.*
-- **왜:** PWM 은 동일 에너지를 더 짧은 펄스로 전달합니다. 펄스 동안의 유량 = 연속 운전 유량 ÷ 평균 듀티. 평균 듀티가 25-30 % 면 3-4× 가 등가 유량입니다.  
-  *Why: PWM compresses the same total energy into shorter pulses; per-pulse flow = continuous-flow ÷ average duty. At 25-30 % average duty, 3-4× is the equivalent flow.*
+- **기존 'low flow' 위치보다 약 3-4 배 열기** — 또는 60-80 m² 5객실 아파트 기준 **8-12 LPM 부근**. 밸브에 LPM 눈금이 없고 단순 단계 표시라면 'high' 위치 근처.  
+  *Open it to **roughly 3-4× your old "low" position**, or about **8-12 LPM** for a 60-80 m² 5-room apartment. Near 'high' if the valve doesn't show LPM markings.*
+- **왜:** 듀티 사이클은 동일 에너지를 더 짧은 펄스로 전달합니다. 펄스 동안의 유량 = 연속 운전 유량 ÷ 평균 듀티. 평균 듀티가 25-30 % 면 3-4× 가 등가 유량입니다.  
+  *Why: duty cycling compresses the same total energy into shorter pulses; per-pulse flow = continuous-flow ÷ average duty. At 25-30 % average duty, 3-4× is the equivalent flow.*
 - **커미셔닝:** Comfort (또는 Sleep) 로 추운 주말을 지내며 객실별 평균 듀티와 온도 변동을 HA 히스토리로 관찰. 평균 듀티 ≥ 80 % 인데 셋포인트 미달이면 → 더 열기. 평균 듀티 ≤ 30 % 인데 과열이면 → 다시 조이기.  
   *Commissioning: run a cold weekend on Comfort (or Sleep) and watch the per-room average duty + temperature variance in HA history. Average duty ≥ 80 % AND undershoot → open further. Average duty ≤ 30 % AND overshoot → close down.*
 
-LPM 밸브 위치를 잘못 설정하면 PWM 의 효과가 크게 떨어집니다. 통합 설정 화면 (Settings → Devices & Services → BESTIN → Configure) 의 안내문에도 같은 권장사항이 있습니다.  
-*Wrong LPM position significantly degrades PWM effectiveness. The same advice appears in the integration's options-flow description.*
+물 유량 밸브 위치를 잘못 설정하면 듀티 사이클의 효과가 크게 떨어집니다. 통합 설정 화면 (Settings → Devices & Services → BESTIN → Configure) 의 안내문에도 같은 권장사항이 있습니다.  
+*Wrong water-flow valve position significantly degrades the duty cycle's effectiveness. The same advice appears in the integration's options-flow description.*
 
 ### 자동화 / Automations — Blueprints
 
@@ -186,7 +189,7 @@ LPM 밸브 위치를 잘못 설정하면 PWM 의 효과가 크게 떨어집니�
 
 ### 알고리즘 / Algorithm (참고 / reference)
 
-iparkapp 게이트웨이에서 활성 프리셋이 PWM 을 트리거할 때:
+iparkapp 게이트웨이에서 활성 프리셋이 슬로우 듀티 사이클을 트리거할 때:
 
 ```
 temp_error = user_setpoint - current_temp
@@ -195,22 +198,22 @@ if 0 < temp_error < 0.5°C and duty > 50%:
     duty *= 0.8   # 셋포인트 근접 시 듀티 감소 / anti-overshoot near setpoint
 ```
 
-추가 제약 / additional constraints: 프리셋별 최소 on / off 시간 (밸브·보일러 보호), 듀티 변화 데드밴드 (채터 방지). 자세한 수치는 `pwm.py` 의 `PRESET_PROFILES` 참조.  
-*See `PRESET_PROFILES` in `pwm.py` for the exact numbers.*
+추가 제약 / additional constraints: 프리셋별 최소 on / off 시간 (밸브·보일러 보호), 듀티 변화 데드밴드 (채터 방지). 자세한 수치는 `duty_cycle.py` 의 `PRESET_PROFILES` 참조.  
+*See `PRESET_PROFILES` in `duty_cycle.py` for the exact numbers.*
 
-근거 / Sources: IEA ECES Task 32 (2018), ASHRAE HVAC Applications (2019), EN 12531, VDI 6030, OJ Electronics OCD5, Honeywell Bulletin 41-353, Uponor Design Guide (2020). 전체 인용 + 경제성 분석 + 밸브 수명 분석은 로컬 연구 파일 (`temp/research/ondol_pwm_research.md`, gitignored) 참조.  
-*Full citations + economics + valve-lifetime analysis in the local research file (`temp/research/ondol_pwm_research.md`, gitignored).*
+근거 / Sources: IEA ECES Task 32 (2018), ASHRAE HVAC Applications (2019), EN 12531, VDI 6030, OJ Electronics OCD5, Honeywell Bulletin 41-353, Uponor Design Guide (2020). 전체 인용 + 경제성 분석 + 밸브 수명 분석은 로컬 연구 파일 (`temp/research/ondol_duty_cycle_research.md`, gitignored) 참조.  
+*Full citations + economics + valve-lifetime analysis in the local research file (`temp/research/ondol_duty_cycle_research.md`, gitignored).*
 
 ### 알려진 제한 / Known caveats
 
-- **월패드 setpoint 가 일시적으로 조작됩니다 (PWM 활성 객실 한정).** ON 펄스 동안 월패드 화면에는 사용자 값보다 높은 setpoint 가 잠시 표시됩니다 — 월패드의 내장 임계값을 강제로 통과시키기 위함입니다. HA UI 는 항상 사용자의 실제 의도값을 보여줍니다.  
-  *Wallpad setpoint is momentarily manipulated on PWM-active rooms — during the ON pulse the wallpad face shows a setpoint elevated above your true target (forces the wallpad's onboard threshold to call for heat). HA always displays your real value.*
-- **HA 재시작.** PWM 컨트롤러 상태는 메모리에만 보관됩니다. 재시작 후 첫 폴링에서 월패드의 (조작된) echo 를 임시로 채택할 수 있으니, 재시작 직후 한 번 프리셋이나 setpoint 를 다시 적용해 주세요.  
-  *HA restart clears in-memory PWM state. Re-apply preset or setpoint once after restart.*
-- **다른 가족이 월패드를 직접 조작하면**, 다음 폴링에서 그 값이 PWM 컨트롤러로 흡수됩니다. 의도된 값이 아니면 HA 에서 다시 설정.  
+- **월패드 setpoint 가 일시적으로 조작됩니다 (듀티 사이클 활성 객실 한정).** ON 펄스 동안 월패드 화면에는 사용자 값보다 높은 setpoint 가 잠시 표시됩니다 — 월패드의 내장 임계값을 강제로 통과시키기 위함입니다. HA UI 는 항상 사용자의 실제 의도값을 보여줍니다.  
+  *Wallpad setpoint is momentarily manipulated on duty-cycle-active rooms — during the ON pulse the wallpad face shows a setpoint elevated above your true target (forces the wallpad's onboard threshold to call for heat). HA always displays your real value.*
+- **HA 재시작.** 듀티 사이클 컨트롤러 상태는 메모리에만 보관됩니다. 재시작 후 첫 폴링에서 월패드의 (조작된) echo 를 임시로 채택할 수 있으니, 재시작 직후 한 번 프리셋이나 setpoint 를 다시 적용해 주세요.  
+  *HA restart clears the in-memory duty-cycle state. Re-apply preset or setpoint once after restart.*
+- **다른 가족이 월패드를 직접 조작하면**, 다음 폴링에서 그 값이 듀티 사이클 컨트롤러로 흡수됩니다. 의도된 값이 아니면 HA 에서 다시 설정.  
   *If someone changes the setpoint at the wallpad directly, the next poll adopts it. Re-set in HA if not desired.*
-- **밸브 수명 vs 절감.** PWM 은 분배기 액추에이터 사이클을 약 5-10 배 늘려 통상 수명을 단축합니다 (대략 약 5-8년). 본 통합의 기본값 (None — PWM 비활성) 을 유지하면 마모 가속이 없습니다. 자세한 분석은 연구 파일 §10.  
-  *PWM accelerates manifold actuator cycling ~5-10×, shortening typical life to roughly 5-8 years. Default (None — PWM off) avoids the wear. Full analysis in research file §10.*
+- **밸브 수명 vs 절감.** 슬로우 듀티 사이클은 분배기 액추에이터 사이클을 약 5-10 배 늘려 통상 수명을 단축합니다 (대략 약 5-8년). 본 통합의 기본값 (None — 듀티 사이클 비활성) 을 유지하면 마모 가속이 없습니다. 자세한 분석은 연구 파일 §10.  
+  *Slow duty cycling accelerates manifold actuator cycling ~5-10×, shortening typical life to roughly 5-8 years. Default (None — duty cycling off) avoids the wear. Full analysis in research file §10.*
 
 ## 디버깅 / Debugging
 

@@ -78,10 +78,10 @@ from .iparkapp_const import (
     make_unit_id,
     normalize_status,
 )
-from .pwm import (
+from .duty_cycle import (
     PRESET_MODES_DEFAULT,
     PRESET_NONE,
-    PwmController,
+    DutyCycleController,
 )
 
 
@@ -172,9 +172,11 @@ class BestinIparkAppAPI:
         self.devices: dict[str, DeviceProfile] = {}
         self.tasks: list[Any] = []
 
-        # PWM 컨트롤러 — Always present. Per-room PWM is engaged when the
-        # user picks a non-'none' preset_mode on a thermostat entity.
-        self.pwm: PwmController = PwmController(
+        # 듀티 사이클 컨트롤러 — Always present. Per-room slow duty cycling
+        # is engaged when the user picks a non-'none' preset_mode on a
+        # thermostat entity. Cycle periods are minutes-scale (time-
+        # proportional control), not high-frequency PWM.
+        self.duty_cycle: DutyCycleController = DutyCycleController(
             send_command=self.send_temper_raw_command,
         )
         # 속성 이름은 device.py 의 extra_state_attributes 가 읽는 것과 정확히
@@ -214,7 +216,7 @@ class BestinIparkAppAPI:
                 self.hass, self._scheduled_refresh, refresh_interval
             ),
         ]
-        self.pwm.start(self.hass)
+        self.duty_cycle.start(self.hass)
         LOGGER.info(
             "iPark 스마트홈 앱 연동 시작 — Started iParkApp client for %s (%s)",
             self.site.get("sitename", self.host),
@@ -229,7 +231,7 @@ class BestinIparkAppAPI:
             except Exception:  # pragma: no cover — defensive
                 pass
         self.tasks = []
-        await self.pwm.stop()
+        await self.duty_cycle.stop()
         if not self.session.closed:
             await self.session.close()
 
@@ -661,13 +663,16 @@ class BestinIparkAppAPI:
                 # 표준 HA preset_mode 지원 — Standard HA preset_mode dropdown.
                 "preset_modes": list(PRESET_MODES_DEFAULT),
             }
-            # PWM 활성화 시 컨트롤러에 현재 온도 + 사용자 setpoint 갱신.
-            # PWM 활성 객실은 사용자의 true setpoint 가 표시됩니다.
-            self.pwm.upsert_current_temp(device_number, current)
-            room_state = self.pwm.get_room(device_number)
+            # 듀티 사이클 활성화 시 컨트롤러에 현재 온도 + 사용자 setpoint
+            # 갱신. 듀티 사이클 활성 객실은 사용자의 true setpoint 가 표시됩니다.
+            # When the slow duty-cycle controller is active, push the latest
+            # measured temperature into it; controlled rooms display the user's
+            # true setpoint rather than the wallpad's currently-elevated echo.
+            self.duty_cycle.upsert_current_temp(device_number, current)
+            room_state = self.duty_cycle.get_room(device_number)
             if room_state is not None:
                 value["preset_mode"] = room_state.preset
-                if self.pwm.is_active_for(device_number):
+                if self.duty_cycle.is_active_for(device_number):
                     value[SERVICE_SET_TEMPERATURE] = room_state.user_setpoint
             else:
                 value["preset_mode"] = PRESET_NONE
@@ -833,7 +838,7 @@ class BestinIparkAppAPI:
         if device_type == "temper":
             preset = _extract_preset_mode(kwargs)
             if preset is not None:
-                profile = self.pwm.set_preset(room_id, preset)
+                profile = self.duty_cycle.set_preset(room_id, preset)
                 # 즉시 UI 반영 — optimistic update for snappy preset feedback.
                 self._optimistic_temper_state(room_id, preset_mode=preset)
                 # passthrough preset (none) → 서버에 직접 setpoint+모드 송신
@@ -855,7 +860,7 @@ class BestinIparkAppAPI:
             if isinstance(raw_room, str) and raw_room.lower().startswith("off/"):
                 target = _extract_temper_setpoint(value, kwargs)
                 if target is None:
-                    room_state = self.pwm.get_room(room_id)
+                    room_state = self.duty_cycle.get_room(room_id)
                     target = (
                         room_state.user_setpoint
                         if room_state is not None
@@ -876,15 +881,15 @@ class BestinIparkAppAPI:
                         SERVICE_SET_TEMPERATURE: target,
                     },
                 )
-                room_state = self.pwm.get_room(room_id)
-                if room_state is not None and self.pwm.is_active_for(room_id):
-                    # PWM 활성 — 컨트롤러에만 보관, 다음 tick 에서 적용
-                    # PWM active — store in controller; next tick will apply.
-                    self.pwm.set_setpoint(room_id, target)
+                room_state = self.duty_cycle.get_room(room_id)
+                if room_state is not None and self.duty_cycle.is_active_for(room_id):
+                    # 듀티 사이클 활성 — 컨트롤러에만 보관, 다음 tick 에서 적용
+                    # Duty-cycle active — store in controller; next tick applies.
+                    self.duty_cycle.set_setpoint(room_id, target)
                     return
-                # PWM 비활성 — 서버에 직접 송신 (기존 동작)
-                # PWM not active — pass straight through to the server.
-                self.pwm.set_setpoint(room_id, target)
+                # 듀티 사이클 비활성 — 서버에 직접 송신 (기존 동작)
+                # Duty-cycle inactive — pass straight through to the server.
+                self.duty_cycle.set_setpoint(room_id, target)
                 await self.send_temper_raw_command(room_id, f"on/{target:g}")
                 return
 
@@ -931,11 +936,12 @@ class BestinIparkAppAPI:
         await self._request_control(cls, unit_id, value, room_id)
 
     async def send_temper_raw_command(self, room: int, ctrl_action: str) -> None:
-        """PWM 컨트롤러용 저수준 호출 — Low-level helper used by the PWM controller.
+        """듀티 사이클 컨트롤러용 저수준 호출 — Low-level helper used by the duty-cycle controller.
 
-        Bypasses the normal enqueue/PWM-routing logic so the controller can
-        send its own manipulated on/off pulses. ``ctrl_action`` is e.g. "on/27"
-        or "off/22" — exactly what the wallpad expects in ``req_ctrl_action``.
+        Bypasses the normal enqueue / duty-cycle-routing logic so the
+        controller can send its own manipulated on/off pulses. ``ctrl_action``
+        is e.g. "on/27" or "off/22" — exactly what the wallpad expects in
+        ``req_ctrl_action``.
         """
         cls = DEVICE_CLASSES["temper"]
         await self._request_control(cls, f"room{room}", ctrl_action, room)

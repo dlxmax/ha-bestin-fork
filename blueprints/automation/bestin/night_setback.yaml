@@ -10,14 +10,16 @@ blueprint:
     the standard HA preset_modes shipped in v1.4. Safer and more efficient
     than fully turning off overnight (no condensation, faster recovery).
 
-    > **iPark 스마트홈 앱 옵션 사용 시:** 단지 LPM 유량 밸브를 기존 'low'
-    > 위치보다 약 3-4 배 (또는 'high') 로 열어두세요. 자세한 내용은
-    > [iPark 스마트홈 앱 가이드](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control)
+    > **iPark 스마트홈 앱 옵션 사용 시:** 싱크대 아래 (온돌 전동 밸브 옆) 의
+    > 단지 물 유량 밸브 (LPM 눈금) 를 기존 'low' 위치보다 약 3-4 배 (또는
+    > 'high') 로 열어두세요. 자세한 내용은
+    > [iPark 스마트홈 앱 가이드](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#슬로우-듀티-사이클-제어--slow-duty-cycle-control)
     > 참조.
-    > **iPark Smarthome App option:** open your apartment's system-wide LPM
-    > flow valve to roughly 3-4× its old "low" position (or "high"). Full
-    > guidance in the
-    > [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#pwm-제어--pwm-control).
+    > **iPark Smarthome App option:** open your apartment's manual water-flow
+    > valve (usually under the kitchen sink next to the ondol electric control
+    > valves; dial is often LPM-marked) to roughly 3-4× its old "low" position
+    > (or "high"). Full guidance in the
+    > [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#슬로우-듀티-사이클-제어--slow-duty-cycle-control).
 
   domain: automation
   source_url: https://github.com/dlxmax/ha-bestin-fork/blob/main/blueprints/automation/bestin/night_setback.yaml
@@ -38,9 +40,9 @@ blueprint:
       name: 잠자리 시각 / Bedtime — switch to Sleep
       description: >
         Sleep 모드 전환 시각 (예: 23:00). 이 시각에 setpoint 가 17°C 로 떨어지고,
-        iPark 스마트홈 앱 게이트웨이에서는 25분 PWM 사이클이 시작됩니다.
+        iPark 스마트홈 앱 게이트웨이에서는 25분 슬로우 듀티 사이클이 시작됩니다.
         Time to switch to Sleep (e.g. 23:00). Setpoint drops to 17°C and on
-        the iPark Smarthome App gateway the 25-min PWM cycle starts.
+        the iPark Smarthome App gateway the 25-min slow duty cycle starts.
       default: "23:00:00"
       selector:
         time: {}
