@@ -107,9 +107,6 @@ iPark 스마트홈 앱 / 클라우드 옵션은 별도의 하드웨어가 필요
 | 표준 HA 프리셋 (난방) / Standard HA presets (heating) | O | Comfort / Eco / Sleep / Away / Vacation / Frost / Boost — 객실별 / per-room. iPark 스마트홈 앱 옵션에서는 슬로우 듀티 사이클 (시간 비례 제어) 이 함께 적용됩니다 (다른 게이트웨이는 setpoint 만 변경). v1.4.0+. / On the iPark Smarthome App option these also engage a software slow duty cycle (time-proportional control); on other gateways they just change the setpoint. v1.4.0+. |
 | HA 자동화 Blueprints | O | 야간 setback / 휴가 일정 / 외출 자동 감지 — `blueprints/automation/bestin/` 의 3 개 YAML 을 한 번 임포트하면 HA UI 에서 객실·시각·도우미를 채워 사용. v1.4.2+. / Three importable blueprints (night setback, vacation window, away-when-empty) under `blueprints/automation/bestin/`. v1.4.2+. |
 
-> **듀티 사이클 사용 시 온돌 물 유량 밸브 주의 / Ondol water-flow valve note when using slow duty cycling (iparkapp gateway):** 싱크대 아래 (온돌 전동 밸브 옆) 에 있는 단지 전체용 **물 유량 밸브** (LPM 눈금이 표시되어 있는 경우가 많음) 를 기존 'low' 위치보다 약 3-4 배 (또는 'high' 위치) 로 열어두세요. 자세한 이유와 커미셔닝 절차는 [iPark 스마트홈 앱 가이드 — 슬로우 듀티 사이클 섹션](./guide/iparkapp.md#슬로우-듀티-사이클-제어--slow-duty-cycle-control) 참조.  
-> *Open your apartment's **water-flow valve** (the single manual one, usually under the kitchen sink next to the ondol electric control valves; the dial is often LPM-marked) to roughly 3-4× its old "low" position (or "high" if unmarked). Full rationale + commissioning steps in the [iPark Smarthome App guide — slow duty-cycle section](./guide/iparkapp.md#슬로우-듀티-사이클-제어--slow-duty-cycle-control).*
-
 - 추가 기기·속성이 필요하면 이슈 탭에 등록해 주세요. / *Open an issue if your household has devices not in the table above.*
 - IPARK 스마트홈 클라우드 연동은 1.2.0 부터 지원됩니다. / *IPARK Smart Home cloud integration is supported from v1.2.0 onward.*
 - iPark 스마트홈 앱 옵션은 본 포크에서 새로 추가되었습니다. / *The iPark Smarthome App option is new in this fork.*

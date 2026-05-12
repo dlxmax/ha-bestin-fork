@@ -140,21 +140,6 @@ i-parklife.com 디렉터리에서 60여 개 단지가 자동으로 조회됩니�
 > **8시간 완전 OFF 습관에 대해 / On the "8 hours fully off" habit:** 안전하지만 최적은 아닙니다. 바닥이 너무 식으면 아침 회복 에너지가 절감을 상쇄하고, 차가운 바닥에 결로가 생길 수 있습니다. **Sleep 모드 (17°C)** 가 같은 8시간 동안 더 적은 에너지를 쓰면서 아침에 빠르게 회복합니다.  
 > *Safe but not optimal. Letting the floor get too cold means morning rebound energy cancels the savings, and the cold floor can develop condensation. **Sleep mode (17 °C)** uses less energy over the same 8 hours and recovers faster in the morning.*
 
-### 온돌 물 유량 밸브 권장 설정 / Recommended ondol water-flow valve setting **(중요 / important)**
-
-본 통합이 설치된 단지의 일반적인 구성은 단지 1개의 **수동 물 유량 밸브** (분당 리터, LPM 단위로 표시되는 경우가 많음) 가 모든 객실 분배기 앞단에 있습니다. 보통 **싱크대 아래** 의 객실별 온돌 전동 밸브 묶음 옆에 있습니다. **슬로우 듀티 사이클 사용 시 이 밸브를 다시 조정해야 합니다.**  
-*Most ondol systems have a single **manual water-flow valve** (often dial-marked in LPM = litres-per-minute) upstream of all room manifolds. It's usually **under the kitchen sink**, next to the per-room ondol electric control valves. **When you turn on slow duty cycling you must re-adjust it.***
-
-- **기존 'low flow' 위치보다 약 3-4 배 열기** — 또는 60-80 m² 5객실 아파트 기준 **8-12 LPM 부근**. 밸브에 LPM 눈금이 없고 단순 단계 표시라면 'high' 위치 근처.  
-  *Open it to **roughly 3-4× your old "low" position**, or about **8-12 LPM** for a 60-80 m² 5-room apartment. Near 'high' if the valve doesn't show LPM markings.*
-- **왜:** 듀티 사이클은 동일 에너지를 더 짧은 펄스로 전달합니다. 펄스 동안의 유량 = 연속 운전 유량 ÷ 평균 듀티. 평균 듀티가 25-30 % 면 3-4× 가 등가 유량입니다.  
-  *Why: duty cycling compresses the same total energy into shorter pulses; per-pulse flow = continuous-flow ÷ average duty. At 25-30 % average duty, 3-4× is the equivalent flow.*
-- **커미셔닝:** Comfort (또는 Sleep) 로 추운 주말을 지내며 객실별 평균 듀티와 온도 변동을 HA 히스토리로 관찰. 평균 듀티 ≥ 80 % 인데 셋포인트 미달이면 → 더 열기. 평균 듀티 ≤ 30 % 인데 과열이면 → 다시 조이기.  
-  *Commissioning: run a cold weekend on Comfort (or Sleep) and watch the per-room average duty + temperature variance in HA history. Average duty ≥ 80 % AND undershoot → open further. Average duty ≤ 30 % AND overshoot → close down.*
-
-물 유량 밸브 위치를 잘못 설정하면 듀티 사이클의 효과가 크게 떨어집니다. 통합 설정 화면 (Settings → Devices & Services → BESTIN → Configure) 의 안내문에도 같은 권장사항이 있습니다.  
-*Wrong water-flow valve position significantly degrades the duty cycle's effectiveness. The same advice appears in the integration's options-flow description.*
-
 ### 자동화 / Automations — Blueprints
 
 반복 일정 (야간 setback / 외출 / 휴가) 은 HA Blueprint 로 제공합니다. 한 번 임포트한 후 HA UI 에서 객실·시각·도우미를 채우면 됩니다 — 통합 안에 별도 UI 를 만들지 않은 이유는 HA 가 이미 훌륭한 UI 를 제공하기 때문입니다.  

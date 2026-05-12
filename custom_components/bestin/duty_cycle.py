@@ -204,12 +204,34 @@ class DutyCycleController:
 
     # ----- public API -------------------------------------------------------
 
+    @staticmethod
+    def _norm_room(room: Any) -> int:
+        """객실 키 정규화 — Coerce ``room`` to int for consistent dict keys.
+
+        Internally ``self.rooms`` is keyed by int. The dispatcher path
+        already passes int (from ROOM_PROBE_RANGE / parsed device_id), but
+        external callers occasionally hand in ``info.room`` which is a
+        display *string* ("1"). Without coercion that would silently
+        create a parallel keyspace (one entry under int 1, another under
+        "1"), each invisible to the other. Coerce on every entry so the
+        controller stays single-keyspace regardless of caller discipline.
+        """
+        try:
+            return int(room)
+        except (TypeError, ValueError):
+            LOGGER.warning(
+                "DutyCycleController: non-numeric room key %r — coercing to 0",
+                room,
+            )
+            return 0
+
     def set_preset(self, room: int, preset: str) -> PresetProfile:
         """객실 프리셋 변경 — Change a room's preset; returns the active profile.
 
         The canonical setpoint of the new preset becomes the user_setpoint
         unless the user explicitly sets a different value with ``set_setpoint``.
         """
+        room = self._norm_room(room)
         if preset not in PRESET_PROFILES:
             LOGGER.warning("Unknown preset %r; falling back to 'none'", preset)
             preset = PRESET_NONE
@@ -232,6 +254,7 @@ class DutyCycleController:
 
     def set_setpoint(self, room: int, setpoint: float) -> None:
         """사용자 setpoint 변경 — User changed the setpoint via HA."""
+        room = self._norm_room(room)
         st = self._get_or_create(room)
         st.user_setpoint = setpoint
         if self._on_state_change is not None:
@@ -242,15 +265,16 @@ class DutyCycleController:
         """폴링 시 호출 — Called from polling to update the measured temp."""
         if current_temp is None:
             return
+        room = self._norm_room(room)
         st = self._get_or_create(room)
         st.current_temp = current_temp
 
     def get_room(self, room: int) -> RoomDutyCycleState | None:
-        return self.rooms.get(room)
+        return self.rooms.get(self._norm_room(room))
 
     def is_active_for(self, room: int) -> bool:
         """이 객실이 듀티 사이클로 제어 중인가? — Does the duty-cycle controller currently drive this room?"""
-        st = self.rooms.get(room)
+        st = self.rooms.get(self._norm_room(room))
         if st is None:
             return False
         prof = PRESET_PROFILES[st.preset]

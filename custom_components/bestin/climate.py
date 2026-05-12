@@ -145,6 +145,32 @@ class BestinClimate(BestinDevice, ClimateEntity):
         """Return the current action."""
 
     @property
+    def extra_state_attributes(self) -> dict:
+        """Surface duty-cycle controller telemetry alongside device attrs.
+
+        iparkapp 게이트웨이에서 슬로우 듀티 사이클이 활성화된 객실은 컨트롤러의
+        결정 상태 (``duty_cycle_pct`` / ``duty_cycle_phase`` /
+        ``duty_cycle_period_s``) 를 climate 엔티티 속성으로 노출합니다.
+        프리셋이 'none' 이거나 다른 게이트웨이에서는 키 자체가 없습니다.
+        사용자가 별도 환수 온도 센서를 추가했을 때 동일 그래프 위에 컨트롤러
+        의도값을 겹쳐 볼 수 있도록 v1.4.9 에서 추가됩니다.
+
+        On the iparkapp gateway, surface the duty-cycle controller's decision
+        state as climate attributes (``duty_cycle_pct`` /
+        ``duty_cycle_phase`` / ``duty_cycle_period_s``). On other gateways
+        and on the 'none' preset, the keys are simply absent. Added in v1.4.9
+        so users adding an optional return-water temperature probe can graph
+        controller intent and actual heat absorption on the same chart.
+        """
+        attrs = super().extra_state_attributes
+        if isinstance(self._device_info.state, dict):
+            for key in ("duty_cycle_pct", "duty_cycle_phase", "duty_cycle_period_s"):
+                val = self._device_info.state.get(key)
+                if val is not None:
+                    attrs[key] = val
+        return attrs
+
+    @property
     def current_temperature(self) -> float:
         """Return the current temperature."""
         return self._device_info.state[ATTR_CURRENT_TEMPERATURE]

@@ -81,6 +81,7 @@ from .iparkapp_const import (
 from .duty_cycle import (
     PRESET_MODES_DEFAULT,
     PRESET_NONE,
+    PRESET_PROFILES,
     DutyCycleController,
 )
 
@@ -592,7 +593,26 @@ class BestinIparkAppAPI:
             except ValueError:
                 pass
 
-        device_number = room if room is not None else 1
+        # device_number 는 항상 int — 일부 dispatcher 경로 (예: heat_supply
+        # unit_cnt 비교) 가 ``>`` 로 정수 비교를 하므로 호출자가 문자열을
+        # 보내도 안전하도록 정규화합니다. ``room`` 은 ROOM_PROBE_RANGE
+        # (int) 에서 오는 것이 정상이지만, ``info.room`` 같은 문자열 식별자
+        # 를 직접 전달하는 외부 코드도 깨지지 않게 합니다.
+        # Always coerce device_number to int. Some downstream paths
+        # (e.g. the heat_supply unit_cnt comparison at _dispatch_status)
+        # use ``>`` against the cached integer unit_cnt — a string caller
+        # would crash with ``'>' not supported between str and int``.
+        # The normal call site uses ROOM_PROBE_RANGE (int) so this is a
+        # defensive no-op in production; external callers (tests / future
+        # integrations) are now safe to pass either type.
+        try:
+            device_number = int(room) if room is not None else 1
+        except (TypeError, ValueError):
+            LOGGER.warning(
+                "_fetch_class: non-numeric room %r — defaulting device_number=1",
+                room,
+            )
+            device_number = 1
         for info in (root or ET.Element("imap")).findall(".//status_info"):
             unit_num = info.get("unit_num", "")
             unit_status = info.get("unit_status", "")
@@ -672,7 +692,27 @@ class BestinIparkAppAPI:
             room_state = self.duty_cycle.get_room(device_number)
             if room_state is not None:
                 value["preset_mode"] = room_state.preset
-                if self.duty_cycle.is_active_for(device_number):
+                # 컨트롤러 텔레메트리 — surface controller-decision data so
+                # climate.py 가 ``extra_state_attributes`` 로 노출할 수 있게
+                # 합니다. cycle_period_s > 0 (= active duty cycle) 일 때만
+                # 키를 넣어, 'none' 프리셋에서는 attributes 패널이 깨끗하게
+                # 유지됩니다. 키 이름은 안정적이며 (graphing 용도로 사용자가
+                # 직접 참조), 'none' 프리셋에서는 키 자체가 없습니다.
+                # Surface controller telemetry so climate.py can expose it via
+                # ``extra_state_attributes`` (stable keys; users may reference
+                # them directly when graphing return-T or duty cycle). Only
+                # emit when the duty cycle is actually active (cycle_period_s
+                # > 0) so the attributes panel stays clean on 'none' preset.
+                profile = PRESET_PROFILES[room_state.preset]
+                if profile.cycle_period_s > 0:
+                    value["duty_cycle_period_s"] = profile.cycle_period_s
+                    value["duty_cycle_pct"] = round(room_state.target_duty_pct, 1)
+                    if room_state.last_sent_phase is True:
+                        value["duty_cycle_phase"] = "on"
+                    elif room_state.last_sent_phase is False:
+                        value["duty_cycle_phase"] = "off"
+                    # last_sent_phase is None → preset just engaged, no tick
+                    # has fired yet; omit phase key until first tick.
                     value[SERVICE_SET_TEMPERATURE] = room_state.user_setpoint
             else:
                 value["preset_mode"] = PRESET_NONE
