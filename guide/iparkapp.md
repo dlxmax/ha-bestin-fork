@@ -66,12 +66,12 @@ i-parklife.com 디렉터리에서 60여 개 단지가 자동으로 조회됩니�
 | 각실 조명 / Per-room lights | 객실별 ON/OFF (단지에서 활성화된 경우)<br>*Per-room ON/OFF where the wallpad supports it.* |
 | 콘센트 / Outlets | ON/OFF + 대기전력 자동차단 (`set` / `unset`)<br>*ON/OFF plus standby-cutoff (`set` / `unset`).* |
 | 난방 / Thermostat | 객실별 ON/OFF + 목표온도 — `unit_cnt` 가 알려주는 객실만 climate 로 노출<br>*Per-room ON/OFF + setpoint, only for rooms reported in `unit_cnt`.* |
-| 추가 비제어 난방 센서 / Extra uncontrollable heat sensor | `unit_cnt` 를 초과한 추가 'room' 응답은 읽기 전용 `heatsource` 센서로 노출됩니다. 정확한 의미는 단지마다 다르며, 지역난방 공급 온도일 가능성이 있으나 다른 출처일 수도 있습니다 (확인 안 됨).<br>*Any 'room' response beyond `unit_cnt` is exposed as a read-only `heatsource` sensor. The exact meaning varies by complex — it could be the district heating supply temperature, or it could be something else (we haven't confirmed).* |
+| 추가 비제어 난방 값 / Extra uncontrollable heat reading | `unit_cnt` 를 초과한 'room' 응답은 **노출하지 않습니다** (v1.4.11). v1.4.3~v1.4.10 은 이를 'Heating supply' 센서로 보여줬지만 그 해석은 추측이었고, 실사용 기기에서 63 °C 에 고정된 채 전혀 움직이지 않았습니다. 값은 디버그 로그로만 남습니다.<br>*A 'room' response beyond `unit_cnt` is **not exposed** (v1.4.11). v1.4.3–v1.4.10 surfaced it as a "Heating supply" sensor, but that reading was a guess and on real hardware it stays pinned at a constant 63 °C. It is now debug-logged only.* |
 | 가스밸브 / Gas valve | 닫기 전용 (앱과 동일)<br>*Close only — matches the official app.* |
 | 환기 / Ventilation | ON/OFF + 풍량 (low / mid / high)<br>*ON/OFF + speed (low / mid / high).* |
 | 외출 모드 / Away mode | 'unoccupied' 설정 (앱과 동일)<br>*Sets `unoccupied` — matches the app.* |
 | 도어락 / Door lock | 상태 표시만 (앱과 동일 — 제어 명령은 앱에서도 제공되지 않습니다)<br>*Status only — the app itself doesn't expose remote control.* |
-| 에너지 모니터링 / Energy monitoring | 월별 평균 사용량 — 전기 / 가스 / 난방 / 온수 / 수도, 단지 평균과 본 세대 각각.<br>*Monthly average usage — Electric / Gas / Heat / Hot water / Water, with both complex average and your household.* |
+| 에너지 모니터링 / Energy monitoring | 월별 평균 사용량 — 전기 / 가스 / 난방 / 온수 / 수도, 본 세대와 단지 평균 각각. 항목명이 먼저 오고 단지 평균에 `(neighbor avg)` 가 붙어서 (`Gas` / `Gas (neighbor avg)`), 디바이스 카드에서 두 값이 항상 나란히 정렬됩니다.<br>*Monthly average usage — Electric / Gas / Heat / Hot water / Water, for your household and the complex average. Names lead with the commodity and suffix the average with `(neighbor avg)` (`Gas` / `Gas (neighbor avg)`) so each pair sorts side by side on the device card.* |
 
 ## 의도적으로 제외된 항목 / Intentionally skipped
 
@@ -193,8 +193,10 @@ if 0 < temp_error < 0.5°C and duty > 50%:
 
 - **월패드 setpoint 가 일시적으로 조작됩니다 (듀티 사이클 활성 객실 한정).** ON 펄스 동안 월패드 화면에는 사용자 값보다 높은 setpoint 가 잠시 표시됩니다 — 월패드의 내장 임계값을 강제로 통과시키기 위함입니다. HA UI 는 항상 사용자의 실제 의도값을 보여줍니다.  
   *Wallpad setpoint is momentarily manipulated on duty-cycle-active rooms — during the ON pulse the wallpad face shows a setpoint elevated above your true target (forces the wallpad's onboard threshold to call for heat). HA always displays your real value.*
-- **HA 재시작.** 듀티 사이클 컨트롤러 상태는 메모리에만 보관됩니다. 재시작 후 첫 폴링에서 월패드의 (조작된) echo 를 임시로 채택할 수 있으니, 재시작 직후 한 번 프리셋이나 setpoint 를 다시 적용해 주세요.  
-  *HA restart clears the in-memory duty-cycle state. Re-apply preset or setpoint once after restart.*
+- **HA 재시작 — v1.4.11 부터 자동 복원됩니다.** 컨트롤러 상태는 여전히 메모리에만 있지만, 온도조절기 엔티티가 HA 표준 `RestoreEntity` 로 마지막 프리셋과 setpoint 를 되살립니다 (HA 는 최대 7일간 보관하므로 짧은 정전도 견딥니다). 복원 후 첫 tick (≤30 s) 에서 최소 on/off 시간을 기다리지 않고 즉시 재평가합니다 — 재시작 중 월패드가 어떤 상태였는지는 알 수 없으므로, 관측된 온도로 처음부터 다시 계산합니다. v1.4.10 까지는 재시작할 때마다 모든 객실이 조용히 'none' 으로 떨어졌습니다.  
+  *HA restart — automatically restored since v1.4.11. The controller state still lives in memory, but the thermostat entities recover their last preset and setpoint through HA's standard `RestoreEntity` (HA keeps these for up to 7 days, so brief outages survive too). The first tick after a restore re-evaluates immediately rather than waiting out a min-on/min-off window: we cannot know what the wallpad did while HA was down, so the decision is recomputed from an observed temperature. Through v1.4.10 every restart silently dropped every room to 'none'.*
+- **종료 시 월패드에 제어권을 돌려줍니다 (v1.4.11).** ON 펄스 중에 컨트롤러가 멈추면 월패드는 현재온도+5 °C 라는 부풀려진 setpoint 를 물고 있게 됩니다. 종료 / 언로드 직전에 사용자의 실제 setpoint 를 `on/<setpoint>` 로 송신해 월패드 자체 로직으로 복귀시킵니다 (OFF 가 아니라 ON — 한겨울에 난방을 꺼버리는 것보다 안전합니다). 서버가 응답하지 않아도 10 초 안에 포기하므로 HA 종료가 막히지 않습니다.  
+  *Hands control back to the wallpad on shutdown (v1.4.11). If the controller stops mid-ON-pulse, the wallpad is left holding an inflated current+5 °C setpoint with nobody to walk it back. Before stopping, the integration sends the user's real setpoint as `on/<setpoint>` so the wallpad's onboard thermostat takes over — ON rather than OFF, because unsmoothed heating at the right temperature beats a cold floor in a Korean winter. Capped at 10 s so an unresponsive server can't block HA shutdown.*
 - **다른 가족이 월패드를 직접 조작하면**, 다음 폴링에서 그 값이 듀티 사이클 컨트롤러로 흡수됩니다. 의도된 값이 아니면 HA 에서 다시 설정.  
   *If someone changes the setpoint at the wallpad directly, the next poll adopts it. Re-set in HA if not desired.*
 - **밸브 수명 vs 절감.** 슬로우 듀티 사이클은 분배기 액추에이터 사이클을 약 5-10 배 늘려 통상 수명을 단축합니다 (대략 약 5-8년). 본 통합의 기본값 (None — 듀티 사이클 비활성) 을 유지하면 마모 가속이 없습니다. 자세한 분석은 연구 파일 §10.  

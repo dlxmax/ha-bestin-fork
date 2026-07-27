@@ -12,7 +12,6 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import (
     UnitOfEnergy,
     UnitOfPower,
-    UnitOfTemperature,
     UnitOfVolume,
     UnitOfVolumeFlowRate
 )
@@ -52,7 +51,6 @@ DEVICE_ICON = {
     "energy:avghwater": "mdi:water-boiler",
     "energy:mineheat": "mdi:radiator",
     "energy:avgheat": "mdi:radiator",
-    "energy:heatsupply": "mdi:thermometer",
 }
 
 DEVICE_CLASS = {
@@ -69,13 +67,6 @@ DEVICE_CLASS = {
     "energy:avggas": SensorDeviceClass.GAS,
     "energy:minewater": SensorDeviceClass.WATER,
     "energy:avgwater": SensorDeviceClass.WATER,
-    # heat_supply는 난방 공급수 온도 센서입니다 (예전 "BESTIN Heat Sensor"
-    # 엔티티). 에너지 총합이 아닙니다 — const.ENERGY_FRIENDLY_LABELS 참고.
-    #
-    # heat_supply is a floor-heating supply *temperature* reading (formerly
-    # the standalone "BESTIN Heat Sensor" entity), not an energy total —
-    # see const.ENERGY_FRIENDLY_LABELS.
-    "energy:heatsupply": SensorDeviceClass.TEMPERATURE,
     # "온수"/"난방" 유량계에 맞는 HA device_class가 없습니다. 아래 로컬 푸시
     # 방식의 hotwater:total/heat:total 항목과 동일한 상황입니다.
     #
@@ -113,7 +104,6 @@ DEVICE_UNIT = {
     "energy:avghwater": UnitOfVolume.CUBIC_METERS,
     "energy:mineheat": UnitOfVolume.CUBIC_METERS,
     "energy:avgheat": UnitOfVolume.CUBIC_METERS,
-    "energy:heatsupply": UnitOfTemperature.CELSIUS,
 }
 
 VALUE_CONVERSION = {
@@ -148,16 +138,35 @@ TOTAL_INCREASING_TYPES = {
     "energy:minehwater", "energy:mineheat",
 }
 
-# 순간값 / 비교 통계 — 갱신마다 오르내릴 수 있습니다.
+# 순간값 — 갱신마다 오르내릴 수 있습니다.
 #
-# Instantaneous readings or point-in-time comparison stats: can go up or
-# down between updates.
+# Instantaneous readings: can go up or down between updates.
 MEASUREMENT_TYPES = {
     "light:dcvalue", "outlet:cutvalue", "outlet:powercons",
     "electric:realtime", "gas:realtime", "heat:realtime",
     "hotwater:realtime", "water:realtime",
+}
+
+# 이웃 평균 — 우리 집 계량기와 같은 '이번 달 누적' 값이지만, 달이 바뀌면
+# 0 부터 다시 시작하므로 'total_increasing' 이 아니라 'total' 입니다.
+#
+# v1.4.11 수정: 이 센서들은 v1.4.10 까지 'measurement' 로 선언되어 있었는데,
+# HA 는 device_class 가 energy/gas/water 인 센서에 'measurement' 를 허용하지
+# 않습니다. 매 시작마다 다음 경고를 찍으면서 장기 통계를 아예 만들지 않았습니다:
+#   "is using state class 'measurement' which is impossible considering
+#    device class ('energy')"
+#
+# Neighbor averages are the same month-to-date accumulation as the household
+# meters, but they reset to zero at each month boundary — hence 'total' rather
+# than 'total_increasing'.
+#
+# v1.4.11 fix: these were declared 'measurement' through v1.4.10, which HA
+# rejects for energy/gas/water device classes. It logged a warning on every
+# start and, more to the point, recorded no long-term statistics for them at
+# all — so the neighbor-average sensors had no history to compare against.
+TOTAL_TYPES = {
     "energy:avgelec", "energy:avggas", "energy:avgwater",
-    "energy:avghwater", "energy:avgheat", "energy:heatsupply",
+    "energy:avghwater", "energy:avgheat",
 }
 
 
@@ -232,6 +241,8 @@ class BestinSensor(BestinDevice, SensorEntity):
         device_type = self._device_info.device_type
         if device_type in TOTAL_INCREASING_TYPES:
             return "total_increasing"
+        if device_type in TOTAL_TYPES:
+            return "total"
         if device_type in MEASUREMENT_TYPES:
             return "measurement"
         return None

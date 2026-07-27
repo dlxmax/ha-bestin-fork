@@ -128,6 +128,13 @@ PRESET_PROFILES: dict[str, PresetProfile] = {
 
 TICK_INTERVAL_S = 30
 
+# 종료 시 월패드 원복에 허용하는 총 시간 — Total budget for handing rooms back
+# to the wallpad on shutdown. HA 는 EVENT_HOMEASSISTANT_STOP 핸들러를 무한정
+# 기다려주지 않으므로, 서버가 응답하지 않아도 종료가 막히지 않게 합니다.
+# HA does not wait indefinitely for EVENT_HOMEASSISTANT_STOP handlers, so cap
+# this: an unresponsive server must not block shutdown.
+RELEASE_TIMEOUT_S = 10
+
 
 # ---------------------------------------------------------------------------
 # 객실별 상태 — Per-room state
@@ -193,7 +200,8 @@ class DutyCycleController:
         )
 
     async def stop(self) -> None:
-        """틱 루프 정지 — Stop the tick loop."""
+        """틱 루프 정지 후 월패드에 제어권 반환 — Stop the tick loop, then hand
+        every duty-cycled room back to the wallpad's own thermostat logic."""
         self._stop_event.set()
         if self._task is not None:
             try:
@@ -201,6 +209,67 @@ class DutyCycleController:
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 pass
             self._task = None
+        await self.release()
+
+    async def release(self) -> None:
+        """월패드에 제어권을 돌려줍니다 — Return control to the wallpad.
+
+        ON 펄스 중에는 월패드의 setpoint 가 현재온도+5 °C 로 올려져 있습니다.
+        그 상태로 컨트롤러가 멈추면 (HA 종료 / 재시작 / 통합 언로드) 월패드는
+        아무도 내려주지 않는 과열 setpoint 를 계속 물고 있게 됩니다. HA 가
+        영영 돌아오지 않을 수도 있으므로 (호스트 장애, SD 카드 사망), 멈추기
+        전에 사용자의 실제 setpoint 를 송신해 월패드 자체 로직으로 정상
+        복귀시킵니다. OFF 가 아니라 ON 을 보내는 것이 핵심입니다 — 한겨울에
+        난방을 꺼버리는 것보다 덜 정교하게라도 계속 데우는 편이 안전합니다.
+
+        During an ON pulse the wallpad's setpoint sits at current+5 °C. If the
+        controller stops there (HA shutdown, restart, integration unload) the
+        wallpad keeps that inflated setpoint with nobody left to walk it back.
+        HA might never return — dead host, dead SD card — so before stopping we
+        push the user's real setpoint and let the wallpad's onboard thermostat
+        take over. Sending ON rather than OFF is deliberate: falling back to
+        unsmoothed heating at the right temperature is far safer in a Korean
+        winter than leaving the floor cold.
+        """
+        targets = [
+            st
+            for st in self.rooms.values()
+            if PRESET_PROFILES[st.preset].cycle_period_s > 0
+            and st.last_sent_phase is True
+        ]
+        if not targets:
+            return
+
+        async def _release_one(st: RoomDutyCycleState) -> None:
+            try:
+                await self._send(st.room, f"on/{st.user_setpoint:g}")
+            except Exception as ex:  # noqa: BLE001
+                LOGGER.warning(
+                    "듀티 사이클 원복 실패 — failed to hand room %s back to the "
+                    "wallpad (it may stay at an elevated setpoint): %s",
+                    st.room, ex,
+                )
+                return
+            # 위상 미상 — phase is now unknown; a restart re-asserts on tick 1.
+            st.last_sent_phase = None
+
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*(_release_one(st) for st in targets)),
+                timeout=RELEASE_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            LOGGER.warning(
+                "듀티 사이클 원복 시간 초과 (%ds) — timed out handing rooms back "
+                "to the wallpad; some may stay at an elevated setpoint",
+                RELEASE_TIMEOUT_S,
+            )
+            return
+        LOGGER.info(
+            "듀티 사이클 원복 완료 — handed %d room(s) back to the wallpad at "
+            "their true setpoints",
+            len(targets),
+        )
 
     # ----- public API -------------------------------------------------------
 
@@ -251,6 +320,55 @@ class DutyCycleController:
             PRESET_PROFILES[preset].cycle_period_s,
         )
         return PRESET_PROFILES[preset]
+
+    def restore_room(
+        self, room: int, preset: str, setpoint: float | None = None
+    ) -> bool:
+        """HA 재시작 후 객실 상태 복원 — Restore a room's state after a restart.
+
+        ``set_preset`` + ``set_setpoint`` 을 한 번에 처리합니다. 순서가
+        중요합니다: ``set_preset`` 은 user_setpoint 를 프리셋의 표준값으로
+        되돌리므로, 사용자가 직접 지정한 온도는 그 *뒤에* 다시 넣어야 합니다.
+
+        위상(``last_sent_phase``)은 복원하지 않습니다. 재시작 동안 월패드가
+        어떤 상태였는지 알 수 없고, ``set_preset`` 이 위상을 None 으로 두면
+        첫 tick (≤30 s) 에서 최소 on/off 시간을 기다리지 않고 즉시 재평가하기
+        때문입니다 — 이것이 복원 후 우리가 원하는 동작입니다.
+
+        Combines ``set_preset`` + ``set_setpoint``. Order matters:
+        ``set_preset`` resets user_setpoint to the preset's canonical value, so
+        a user-chosen temperature has to be re-applied *after* it.
+
+        The phase (``last_sent_phase``) is deliberately not restored. We cannot
+        know what the wallpad did while HA was down, and the None that
+        ``set_preset`` leaves makes the first tick (≤30 s away) re-evaluate
+        immediately without waiting out a min-on/min-off window — which is
+        exactly what we want after a restart.
+
+        Returns True when the room was actually put under duty-cycle control.
+        """
+        room = self._norm_room(room)
+        if preset not in PRESET_PROFILES:
+            LOGGER.warning(
+                "복원할 수 없는 프리셋 — cannot restore unknown preset %r for "
+                "room %s; leaving the room on 'none'",
+                preset, room,
+            )
+            return False
+        if PRESET_PROFILES[preset].cycle_period_s == 0:
+            # 'none' 은 기본 상태이므로 복원할 것이 없습니다 — 'none' is the
+            # default; restoring it would just create an idle room entry.
+            return False
+
+        self.set_preset(room, preset)
+        if setpoint is not None:
+            self.set_setpoint(room, setpoint)
+        LOGGER.info(
+            "듀티 사이클 복원 — restored room %s to preset '%s' (setpoint=%.1f°C); "
+            "first tick re-asserts within %ds",
+            room, preset, self.rooms[room].user_setpoint, TICK_INTERVAL_S,
+        )
+        return True
 
     def set_setpoint(self, room: int, setpoint: float) -> None:
         """사용자 setpoint 변경 — User changed the setpoint via HA."""

@@ -24,8 +24,10 @@ import asyncio
 import base64
 import hashlib
 import json
+import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
+from functools import lru_cache
 from typing import Any, Callable
 
 import aiohttp
@@ -71,6 +73,7 @@ from .iparkapp_const import (
     LOGIN_DATA_PATH,
     LOGIN_LANDING_PATH,
     REFERER_PAGES,
+    RESULT_ERRORS_FATAL,
     RESULT_OK,
     ROOM_PROBE_RANGE,
     USER_AGENT,
@@ -104,8 +107,7 @@ def _format_device_name(
     - Single-channel types (doorlock / gas / fan / ventil): typically have
       one channel (sub_id == "1"), so the sub_id is noise. Show the room.
     - energy with a recognised sub_id: substitute a friendly label
-      ("avg_elec" → "Neighbor avg electricity", "heat_supply" →
-      "Heating supply").
+      ("mine_gas" → "Gas", "avg_gas" → "Gas (neighbor avg)").
     - Everything else: the v1.4.2 "{room} {sub_id_words}" form.
     """
     if device_type == "energy" and sub_id:
@@ -119,6 +121,34 @@ def _format_device_name(
     if sub_id:
         return f"{device_room} {' '.join(sub_id.split('_'))}"
     return device_room
+
+
+# 깨진 XML 응답 복구용 패턴 — Patterns used to salvage malformed replies.
+# 월패드의 난방 control 응답은 XML 로서 유효하지 않지만, 우리가 필요로 하는
+# 태그들 자체는 온전한 self-closing 형태입니다.
+# See ``BestinIparkAppAPI._salvage_malformed``: the wallpad's heat control
+# reply is not well-formed XML, but the individual tags we care about are
+# intact self-closing elements inside it.
+# 이 횟수만큼 연속으로 치명적 오류가 나면 폴링 간격을 늘립니다.
+# Consecutive fatal replies before a never-OK device class is backed off.
+ABSENT_CLASS_THRESHOLD = 5
+
+# 백오프 중에도 이 주기마다 한 번씩은 다시 시도합니다 (30초 폴링 기준 약 1시간).
+# 영구히 끄지 않는 이유는 __init__ 의 ``_class_next_probe`` 주석 참고.
+# Re-probe a backed-off class this often (~1 h at the 30 s poll interval).
+# Cuts a missing device from ~2,880 requests/day to ~24 while still healing
+# on its own — see the ``_class_next_probe`` note in __init__ for why this is
+# a backoff rather than an off-switch.
+ABSENT_CLASS_RETRY_CYCLES = 120
+
+_SERVICE_RESULT_RE = re.compile(r"<service\b[^>]*\bresult\s*=\s*\"([^\"]*)\"")
+_ATTR_RE = re.compile(r"([\w:.-]+)\s*=\s*\"([^\"]*)\"")
+
+
+@lru_cache(maxsize=8)
+def _self_closing_re(tag: str) -> re.Pattern[str]:
+    """``<tag ... />`` 의 속성 문자열만 캡처합니다 — Match one self-closing tag."""
+    return re.compile(rf"<{re.escape(tag)}\b([^>]*?)/?>")
 
 
 class BestinIparkAppAPI:
@@ -180,21 +210,41 @@ class BestinIparkAppAPI:
         self.duty_cycle: DutyCycleController = DutyCycleController(
             send_command=self.send_temper_raw_command,
         )
-        # 속성 이름은 device.py 의 extra_state_attributes 가 읽는 것과 정확히
-        # 일치해야 합니다 — must match exactly what device.py reads in
-        # ``extra_state_attributes``, otherwise entities raise AttributeError
-        # and HA marks them unavailable.
+        # 세션 갱신 주기 판단용 내부 상태입니다. v1.4.12 부터는 엔티티 속성
+        # 으로 노출하지 않습니다 — 30초마다 값이 바뀌는 탓에 모든 엔티티가
+        # 폴링마다 recorder 행을 하나씩 남겼습니다 (device.py 참고).
+        # Internal bookkeeping for the session-refresh schedule. No longer
+        # exposed as entity attributes since v1.4.12: because they changed on
+        # every 30 s poll, they made every entity write a recorder row per
+        # poll even when nothing had changed. See device.py.
         self.last_update_time: datetime = datetime.now()
         self.last_sess_refresh: datetime = datetime.now()
         # 객실(room) 디바이스가 실제로 존재하는지 결과 캐시 — Cache of which
         # room-scoped devices actually exist so we don't poll dead rooms.
         self._room_exists: dict[tuple[str, int], bool] = {}
         # status_map 의 unit_cnt 캐시 — Cached <status_map unit_cnt="N"> per
-        # device class. For heat, anything beyond ``unit_cnt`` is exposed as a
-        # ``heatsource`` sensor rather than as a climate entity. The exact
-        # meaning of those extra readings varies by complex and is not
-        # confirmed (one speculation is district-heating supply temperature).
+        # device class. For heat, anything beyond ``unit_cnt`` is not a
+        # controllable thermostat and is dropped (v1.4.11 — see
+        # ``_dispatch_status``).
         self._unit_cnt: dict[str, int] = {}
+        # 세대에 없는 장치 클래스는 폴링 간격을 늘립니다 — Back off on device
+        # classes this household doesn't have. ``_room_exists`` only covers
+        # room-scoped classes; a one-per-home class (gas / ventil / doorlock)
+        # the wallpad doesn't serve just answered ``result="fail"`` forever —
+        # ~2,800 wasted requests a day for a gas valve the flat lacks.
+        #
+        # 완전히 끄지 않고 주기적으로 다시 시도합니다. 도어락처럼 간헐적으로
+        # 실패하는 장치가 재시작 직후 우연히 연속 실패하면 영구히 꺼져버리기
+        # 때문입니다 — 그건 진짜 고장보다 나쁩니다.
+        # Deliberately a backoff, not an off-switch: a class that fails
+        # intermittently (the doorlock does) could lose its first few polls
+        # after a restart by chance and would then stay dark until the next
+        # reload. Re-probing keeps the saving while guaranteeing recovery.
+        self._poll_cycle: int = 0
+        self._class_fatal_streak: dict[str, int] = {}
+        self._class_ever_ok: set[str] = set()
+        self._class_next_probe: dict[str, int] = {}
+        self._class_backed_off: set[str] = set()
 
     # ------------------------------------------------------------------
     # 라이프사이클 — Lifecycle
@@ -349,7 +399,45 @@ class BestinIparkAppAPI:
             return None
 
     @staticmethod
-    def _parse_xml_result(body: str | None) -> tuple[str | None, ET.Element | None]:
+    def _salvage_malformed(body: str) -> tuple[str | None, ET.Element | None]:
+        """깨진 XML 응답에서 필요한 값만 건져냅니다 — Salvage a non-well-formed reply.
+
+        ``getHomeDevice_heat.php`` 의 **control** 응답은 XML 로서 유효하지
+        않습니다 (태그가 맞지 않음). 하지만 그 안의
+        ``<service ... result="ok"/>`` 와 ``<status_info .../>`` 행은 멀쩡한
+        self-closing 태그입니다. 엄격한 파서가 문서 전체를 버리는 바람에
+        v1.4.11 까지는 **모든 온도조절기 명령이** 실제로는 성공했는데도
+        '제어 실패' 경고를 남겼고, 응답에 실려 온 최신 상태(에코)도 함께
+        버려졌습니다. status 응답과 다른 장치(livinglight 등)의 응답은
+        정상이므로, 이 경로는 오직 깨진 응답에서만 동작합니다.
+
+        The **control** reply from ``getHomeDevice_heat.php`` is not
+        well-formed XML — its tags don't match up. The parts we actually need
+        (``<service ... result="ok"/>`` and the ``<status_info .../>`` rows)
+        are perfectly good self-closing tags inside it, but a strict parse
+        throws the whole document away. Through v1.4.11 that made *every*
+        thermostat command log "제어 실패 / control failed" even though the
+        wallpad had accepted it, and discarded the post-state the reply
+        carried. Status replies and the other device classes are well-formed,
+        so this path only ever runs on the broken ones.
+
+        Tag-shape agnostic on purpose: we don't reconstruct the document, we
+        just lift the self-closing rows we understand into a synthetic root.
+        """
+        result_match = _SERVICE_RESULT_RE.search(body)
+        if result_match is None:
+            return None, None
+
+        root = ET.Element("imap")
+        for tag in ("status_map", "status_info"):
+            for raw_attrs in _self_closing_re(tag).findall(body):
+                element = ET.SubElement(root, tag)
+                for name, value in _ATTR_RE.findall(raw_attrs):
+                    element.set(name, value)
+        return result_match.group(1), root
+
+    @classmethod
+    def _parse_xml_result(cls, body: str | None) -> tuple[str | None, ET.Element | None]:
         """``<service result="...">`` 의 result 값과 root 요소를 반환합니다.
         Return the ``result`` attribute and root element from a wallpad XML response."""
         if not body or not body.strip():
@@ -357,7 +445,16 @@ class BestinIparkAppAPI:
         try:
             root = ET.fromstring(body)
         except ET.ParseError as ex:
-            LOGGER.debug("XML 파싱 실패 — XML parse failed: %s; body=%r", ex, body[:200])
+            # 엄격한 파싱 실패 시 건져내기를 시도합니다 — try to salvage before
+            # declaring failure; see ``_salvage_malformed``.
+            result, salvaged = cls._salvage_malformed(body)
+            if result is not None:
+                LOGGER.debug(
+                    "XML 복구 — recovered a malformed reply (result=%s, %d row(s)): %s",
+                    result, len(salvaged or ()), ex,
+                )
+                return result, salvaged
+            LOGGER.debug("XML 파싱 실패 — XML parse failed: %s; body=%r", ex, body[:500])
             return None, None
         service = root.find(".//service")
         if service is None:
@@ -501,6 +598,38 @@ class BestinIparkAppAPI:
         ``_optimistic_state``."""
         self._optimistic_state(f"{BRAND_PREFIX}_temper_{room_id}", dict(fields))
 
+    def restore_duty_cycle_state(
+        self, room: int, preset: str, setpoint: float | None = None
+    ) -> bool:
+        """HA 재시작 후 객실 듀티 사이클 복원 — Restore a room's duty cycle.
+
+        ``climate.py`` 가 RestoreEntity 로 읽어온 마지막 상태를 넘겨 호출합니다.
+        컨트롤러 상태를 되살린 뒤, 다음 폴링(최대 30 s)을 기다리지 않고 엔티티
+        속성에 즉시 반영해 재시작 직후에도 UI 가 올바른 프리셋을 보여줍니다.
+
+        Called by ``climate.py`` with the last state RestoreEntity recovered.
+        Revives the controller state, then pushes it into the entity right away
+        so the UI shows the correct preset immediately instead of reverting to
+        'none' until the next poll (up to 30 s later).
+
+        게이트웨이별 진입점입니다 — center.py / controller.py 에는 듀티 사이클
+        컨트롤러가 없으므로 이 메서드도 없습니다. climate.py 는 존재 여부를
+        확인하고 호출합니다.
+        Gateway-specific entry point: center.py / controller.py have no
+        duty-cycle controller and therefore no such method, so climate.py
+        checks for it before calling.
+        """
+        if not self.duty_cycle.restore_room(room, preset, setpoint):
+            return False
+        state = self.duty_cycle.get_room(room)
+        if state is not None:
+            self._optimistic_temper_state(
+                room,
+                preset_mode=state.preset,
+                **{SERVICE_SET_TEMPERATURE: state.user_setpoint},
+            )
+        return True
+
     def get_devices_from_domain(self, domain: str) -> list:
         """플랫폼별 등록된 장치 목록을 반환합니다 — Get devices for a HA platform.
 
@@ -526,7 +655,12 @@ class BestinIparkAppAPI:
     async def _poll_all(self) -> None:
         """모든 장치 클래스를 동시에 갱신합니다 — Poll every class concurrently."""
         coros: list[Any] = []
+        self._poll_cycle += 1
         for cls in DEVICE_CLASSES.values():
+            # 백오프 중인 클래스는 재시도 시점까지 건너뜁니다 — skip a backed-off
+            # class until its next probe cycle comes round.
+            if self._poll_cycle < self._class_next_probe.get(cls.key, 0):
+                continue
             if cls.room_scoped:
                 for n in ROOM_PROBE_RANGE:
                     if self._room_exists.get((cls.key, n), True):
@@ -570,22 +704,58 @@ class BestinIparkAppAPI:
                 # 응답이 비어 있다면 해당 객실에는 장치가 없다고 판단합니다.
                 # Empty response → assume the room doesn't exist; stop polling it.
                 self._room_exists[(cls.key, room)] = False
+            elif room is None and result in RESULT_ERRORS_FATAL:
+                # 폴링 간격을 늘립니다 — back off; see the note in __init__.
+                self._class_fatal_streak[cls.key] = (
+                    self._class_fatal_streak.get(cls.key, 0) + 1
+                )
+                if (
+                    cls.key not in self._class_ever_ok
+                    and self._class_fatal_streak[cls.key] >= ABSENT_CLASS_THRESHOLD
+                ):
+                    self._class_next_probe[cls.key] = (
+                        self._poll_cycle + ABSENT_CLASS_RETRY_CYCLES
+                    )
+                    # 첫 판정만 INFO — announce once, then keep the hourly
+                    # re-probes quiet.
+                    first_time = cls.key not in self._class_backed_off
+                    self._class_backed_off.add(cls.key)
+                    (LOGGER.info if first_time else LOGGER.debug)(
+                        "%s 폴링 간격 확대 — no '%s' device found "
+                        "(%d consecutive '%s' replies, never once OK); "
+                        "re-probing every %d polls instead of every poll",
+                        cls.key, cls.key,
+                        self._class_fatal_streak[cls.key], result,
+                        ABSENT_CLASS_RETRY_CYCLES,
+                    )
             LOGGER.debug(
                 "%s 응답=%s — fetch %s (room=%s) result=%s",
                 cls.key, result, cls.key, room, result,
             )
             return
 
+        # 한 번이라도 성공하면 백오프를 완전히 해제합니다 — a single success
+        # cancels the backoff outright, so a device that comes back (or was
+        # merely unlucky on startup) resumes full-rate polling immediately.
+        if cls.key in self._class_backed_off:
+            LOGGER.info(
+                "%s 폴링 정상화 — '%s' answered OK; resuming normal polling",
+                cls.key, cls.key,
+            )
+            self._class_backed_off.discard(cls.key)
+        self._class_ever_ok.add(cls.key)
+        self._class_fatal_streak.pop(cls.key, None)
+        self._class_next_probe.pop(cls.key, None)
+
         # 객실 디바이스가 존재함을 표시 — Mark this room as live.
         if room is not None:
             self._room_exists[(cls.key, room)] = True
 
         # status_map 의 unit_cnt 를 캐시합니다 — Cache unit_cnt for later use.
-        # ``unit_cnt`` 를 넘어서는 'room' 응답은 제어 가능한 방이 아니므로 별도
-        # heatsource 센서로 분리합니다 (정확한 의미는 단지마다 상이).
-        # Any 'room' returned beyond ``unit_cnt`` isn't a controllable room —
-        # we route it to a separate ``heatsource`` sensor; exact meaning varies
-        # by complex (we don't claim to know what it is).
+        # ``unit_cnt`` 를 넘어서는 'room' 응답은 제어 가능한 방이 아니므로
+        # 무시합니다 (v1.4.11 — ``_dispatch_status`` 참고).
+        # Any 'room' returned beyond ``unit_cnt`` isn't a controllable room, so
+        # it is ignored (v1.4.11 — see ``_dispatch_status``).
         status_map = (root or ET.Element("imap")).find(".//status_map")
         if status_map is not None and status_map.get("unit_cnt"):
             try:
@@ -593,13 +763,13 @@ class BestinIparkAppAPI:
             except ValueError:
                 pass
 
-        # device_number 는 항상 int — 일부 dispatcher 경로 (예: heat_supply
-        # unit_cnt 비교) 가 ``>`` 로 정수 비교를 하므로 호출자가 문자열을
+        # device_number 는 항상 int — 일부 dispatcher 경로 (예: unit_cnt
+        # 비교) 가 ``>`` 로 정수 비교를 하므로 호출자가 문자열을
         # 보내도 안전하도록 정규화합니다. ``room`` 은 ROOM_PROBE_RANGE
         # (int) 에서 오는 것이 정상이지만, ``info.room`` 같은 문자열 식별자
         # 를 직접 전달하는 외부 코드도 깨지지 않게 합니다.
         # Always coerce device_number to int. Some downstream paths
-        # (e.g. the heat_supply unit_cnt comparison at _dispatch_status)
+        # (e.g. the unit_cnt comparison at _dispatch_status)
         # use ``>`` against the cached integer unit_cnt — a string caller
         # would crash with ``'>' not supported between str and int``.
         # The normal call site uses ROOM_PROBE_RANGE (int) so this is a
@@ -640,7 +810,22 @@ class BestinIparkAppAPI:
         }[cls.key]
 
         sub_id: str | None = None
-        if unit_num.startswith("switch"):
+        if cls.key == "doorlock":
+            # 도어락은 세대당 하나뿐이므로 서버가 어떤 unit_num 을 돌려주든
+            # ("switch1", "doorlock1", ...) 항상 같은 sub_id 로 고정합니다.
+            # 그렇지 않으면 응답 형식이 바뀔 때마다 unique_id 가 달라져
+            # 'unavailable' 상태의 유령 엔티티가 하나씩 쌓입니다 (v1.4.11
+            # 마이그레이션이 정리하는 bestin_doorlock_1_doorlock1 이 그 예).
+            #
+            # One doorlock per household, so pin the sub_id regardless of
+            # which unit_num spelling the server returns ("switch1",
+            # "doorlock1", ...). Otherwise every change in the response
+            # format mints a new unique_id and leaves the previous entity
+            # stranded as an 'unavailable' ghost — exactly how the
+            # bestin_doorlock_1_doorlock1 orphan that the v1.4.11 migration
+            # cleans up came to exist.
+            sub_id = "1"
+        elif unit_num.startswith("switch"):
             sub_id = unit_num[len("switch"):]
         elif unit_num == "gas1":
             sub_id = None
@@ -716,31 +901,39 @@ class BestinIparkAppAPI:
                     value[SERVICE_SET_TEMPERATURE] = room_state.user_setpoint
             else:
                 value["preset_mode"] = PRESET_NONE
-            # 'unit_cnt' 를 초과하는 방 번호는 제어 불가 — 별도 센서로 분리.
-            # 정확한 의미는 단지마다 상이하며 확인되지 않았습니다.
+            # 'unit_cnt' 를 초과하는 방 번호는 제어 가능한 온도조절기가
+            # 아닙니다. v1.4.3~v1.4.10 은 이 값을 'Heating supply' 센서로
+            # 노출했지만, 그것은 어디까지나 추측이었습니다 — 실사용 기기에서
+            # 63 °C 에 고정된 채 며칠간 한 번도 움직이지 않는 것이 확인되어
+            # v1.4.11 에서 노출을 중단합니다. 상수를 센서로 포장하는 것보다
+            # 아예 없는 편이 낫습니다. 값 자체는 debug 로그로만 남깁니다.
+            #
             # Rooms beyond ``status_map.unit_cnt`` aren't controllable
-            # thermostats — re-route to a read-only sensor entity. Exact
-            # meaning varies by complex; we don't claim to know what the value
-            # represents (could be a district-heating supply temp, could be
-            # something else entirely).
+            # thermostats. v1.4.3–v1.4.10 surfaced this as a "Heating supply"
+            # sensor, but that reading was only ever a guess at what the
+            # wallpad means by it — and on real hardware it stays pinned at a
+            # constant 63 °C for days on end. v1.4.11 stops exposing it: a
+            # constant dressed up as a sensor is worse than no sensor. The
+            # value is still logged at debug level for anyone investigating.
             unit_cnt = self._unit_cnt.get("temper")
             if unit_cnt and device_number > unit_cnt:
-                # current 값이 가장 의미있음 — current temp is the useful value.
-                # v1.4.3: 별도 'BESTIN Heat Sensor' 카테고리를 없애고 BESTIN
-                # Energy 안의 'Heating supply' 센서로 통합합니다. 첫 번째 추가
-                # 방은 sub_id='heat_supply', 그 이후는 'heat_supply_<n>'.
-                # v1.4.3: fold these readings into BESTIN Energy as
-                # "Heating supply" (formerly the orphan "BESTIN Heat Sensor"
-                # device). Most installs only have one extra reading; if the
-                # server returns more, additional ones get a numbered sub_id.
-                sub_id = (
-                    "heat_supply"
-                    if device_number == unit_cnt + 1
-                    else f"heat_supply_{device_number}"
-                )
-                self._set_device(
-                    "energy", 1, sub_id, current if current is not None else value
-                )
+                # 다음 폴링부터는 이 방을 아예 조회하지 않습니다. 값을 버리기만
+                # 하면 30 초마다 쓸모없는 요청과 로그가 계속 쌓입니다.
+                # Stop fetching this room at all from the next cycle. Merely
+                # dropping the value still cost one request and one log line
+                # every 30 s (~600 a day) for a row we never use.
+                first_time = self._room_exists.get(("temper", device_number)) is not False
+                self._room_exists[("temper", device_number)] = False
+                if first_time:
+                    LOGGER.debug(
+                        "제어 불가 난방 값 무시 — ignoring uncontrollable heat row "
+                        "(room %s > unit_cnt %s): raw=%r current=%r; "
+                        "this room will no longer be polled",
+                        device_number,
+                        unit_cnt,
+                        unit_status,
+                        current,
+                    )
                 return
 
         # 환기팬은 dict 형태로 펼쳐 fan.py 가 speed 슬라이더와 preset 드롭다운을

@@ -416,15 +416,22 @@ class BestinHub:
         if self.gateway_mode:
             self.gateway_mode = None
 
-    @callback
     async def shutdown(self, event: Event) -> None:
-        """Shutdown the hub."""
-        if self.api:
-            await self.api.stop()
-        if self.connection and self.available:
-            await self.connection.close()
-        if self.gateway_mode:
-            self.gateway_mode = None
+        """Shutdown the hub on EVENT_HOMEASSISTANT_STOP.
+
+        ``@callback`` 이 붙어 있었지만 이 함수는 코루틴입니다. HA 는
+        ``iscoroutinefunction`` 을 먼저 검사하므로 실제 동작에는 문제가 없었으나,
+        데코레이터의 의미('이벤트 루프에서 동기 실행해도 안전')와 정반대라
+        오해를 부릅니다. 이 경로는 듀티 사이클 원복(release)을 await 해야 하므로
+        더더욱 코루틴이어야 합니다.
+
+        This used to carry ``@callback``, which asserts the opposite of what
+        is true here — the decorator means "safe to run synchronously in the
+        event loop", and this is a coroutine that must be awaited (it drives
+        the duty-cycle hand-back). It worked only because HA checks
+        ``iscoroutinefunction`` before ``is_callback``.
+        """
+        await self.async_close()
     
     async def async_initialize_serial(self) -> None:
         """Initialize the serial connection."""

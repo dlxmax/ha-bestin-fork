@@ -6,6 +6,7 @@ from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN, ClimateEn
 from homeassistant.components.climate.const import (
     ATTR_HVAC_MODE,
     ATTR_CURRENT_TEMPERATURE,
+    ATTR_PRESET_MODE,
     SERVICE_SET_TEMPERATURE,
     ClimateEntityFeature,
     HVACMode,
@@ -17,11 +18,12 @@ from homeassistant.const import (
     ATTR_TEMPERATURE,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import CONF_VERSION, NEW_CLIMATE
+from .const import CONF_VERSION, LOGGER, NEW_CLIMATE
 from .device import BestinDevice
 from .hub import BestinHub
 
@@ -57,11 +59,22 @@ async def async_setup_entry(
     async_add_climate()
 
 
-class BestinClimate(BestinDevice, ClimateEntity):
-    """Defined the Climate."""
+class BestinClimate(BestinDevice, RestoreEntity, ClimateEntity):
+    """Defined the Climate.
+
+    ``RestoreEntity`` 는 슬로우 듀티 사이클 프리셋을 HA 재시작 후 되살리기
+    위한 것입니다 (v1.4.11). 컨트롤러 상태는 메모리에만 있으므로, 복원이
+    없으면 재시작할 때마다 모든 객실이 조용히 'none' 으로 떨어져 사용자가
+    설정해 둔 난방 스케줄이 사라집니다.
+
+    ``RestoreEntity`` is what brings the slow duty-cycle preset back after a
+    restart (v1.4.11). The controller keeps its state in memory only, so
+    without this every restart silently dropped every room to 'none' — the
+    user's heating profile just disappeared, with nothing in the UI to say so.
+    """
+
     TYPE = CLIMATE_DOMAIN
 
-    _enable_turn_on_off_backwards_compatibility = False
     # icons.json 의 climate.thermostat.state_attributes.preset_mode 에 매핑.
     # Maps preset_mode dropdown options to mdi icons (vacation→airplane,
     # frost→snowflake, etc.) via icons.json.
@@ -85,6 +98,79 @@ class BestinClimate(BestinDevice, ClimateEntity):
         self._supported_features = feats
         self._hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
         self._version_exists = getattr(hub.api, CONF_VERSION, False)
+
+    async def async_added_to_hass(self) -> None:
+        """등록 시 마지막 상태를 복원합니다 — Restore last state on add."""
+        await super().async_added_to_hass()
+        if (last_state := await self.async_get_last_state()) is not None:
+            self.async_restore_last_state(last_state)
+
+    @callback
+    def async_restore_last_state(self, last_state: State) -> None:
+        """듀티 사이클 프리셋 / setpoint 복원 — Re-arm the duty cycle.
+
+        HA 는 마지막 상태를 최대 7일간 보관하므로, 재시작뿐 아니라 짧은 정전
+        후에도 복원됩니다. 복원 대상은 두 가지 뿐입니다:
+
+          - ``preset_mode`` — 사용자가 고른 프로파일. 이것이 핵심입니다.
+          - ``temperature`` — 사용자가 프리셋 표준값 대신 직접 지정한 온도.
+            듀티 사이클 활성 시 이 값이 곧 컨트롤러의 ``user_setpoint`` 입니다
+            (iparkapp._dispatch_status 참고).
+
+        나머지 (현재 온도, 사이클 위상, 듀티 %) 는 복원하지 않습니다 — 다음
+        폴링과 첫 tick 이 30 s 안에 실제 값으로 다시 채웁니다. 재시작 중
+        월패드가 어떤 상태였는지는 알 수 없으므로, 추측해서 복원하는 것보다
+        관측된 온도로 처음부터 다시 계산하는 편이 정확합니다.
+
+        HA keeps last states for up to 7 days, so this survives brief outages
+        as well as ordinary restarts. Only two things are worth restoring:
+
+          - ``preset_mode`` — the profile the user chose. This is the one that
+            matters.
+          - ``temperature`` — a setpoint the user picked instead of the
+            preset's canonical value. While duty cycling, this *is* the
+            controller's ``user_setpoint`` (see iparkapp._dispatch_status).
+
+        Everything else (measured temperature, cycle phase, duty %) is left
+        alone: the next poll and first tick refill it from reality within 30 s.
+        We cannot know what the wallpad did while HA was down, so recomputing
+        from an observed temperature beats restoring a guess.
+        """
+        # 듀티 사이클은 iparkapp 게이트웨이 전용입니다 — duty cycling exists
+        # only on the iparkapp gateway; the other two have nothing to restore.
+        restore = getattr(self.hub.api, "restore_duty_cycle_state", None)
+        if not callable(restore):
+            return
+
+        preset = last_state.attributes.get(ATTR_PRESET_MODE)
+        if not preset:
+            return
+
+        # 저장된 setpoint 는 사용자 데이터입니다 — 범위를 벗어나거나 숫자가
+        # 아니면 무시하고 프리셋 표준값을 쓰게 둡니다.
+        # The stored setpoint is user data: ignore anything non-numeric or out
+        # of range and let the preset's canonical value stand.
+        setpoint: float | None = None
+        raw_setpoint = last_state.attributes.get(ATTR_TEMPERATURE)
+        if isinstance(raw_setpoint, (int, float)) and not isinstance(
+            raw_setpoint, bool
+        ):
+            if self.min_temp <= raw_setpoint <= self.max_temp:
+                setpoint = float(raw_setpoint)
+            else:
+                LOGGER.warning(
+                    "복원된 setpoint %.1f°C 가 범위(%d–%d)를 벗어나 무시합니다 — "
+                    "restored setpoint for %s is out of range; using the "
+                    "preset's canonical value instead",
+                    raw_setpoint, self.min_temp, self.max_temp, self.entity_id,
+                )
+
+        if restore(self._device_info.room, preset, setpoint):
+            LOGGER.info(
+                "%s: 재시작 전 프리셋 '%s' 복원 — restored preset '%s' from "
+                "before the restart",
+                self.entity_id, preset, preset,
+            )
 
     @property
     def supported_features(self) -> ClimateEntityFeature:

@@ -26,7 +26,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import FRIENDLY_TYPE_NAMES, NEW_BINARY_SENSOR
+from .const import NEW_BINARY_SENSOR
 from .device import BestinDevice
 from .hub import BestinHub
 
@@ -75,24 +75,23 @@ class BestinBinarySensor(BestinDevice, BinarySensorEntity):
         # Doorlocks use the LOCK device class. HA convention: True = unlocked,
         # False = locked. Our wallpad reports ``True`` when unlocked, so the
         # mapping is direct.
+        # 표시명("Door Lock" / "Away Mode")은 BestinDevice.__init__ 이
+        # MAIN_DEVICES 유형에 대해 공통으로 붙여 줍니다 (v1.4.11).
+        # Entity names ("Door Lock" / "Away Mode") come from
+        # BestinDevice.__init__, which applies the friendly type label to all
+        # MAIN_DEVICES types since v1.4.11.
         if device_type == "doorlock":
+            # HA 규약: True = 해제, False = 잠김. 월패드도 해제 시 True 를
+            # 보고하므로 그대로 매핑됩니다.
+            # HA convention: True = unlocked, False = locked. Our wallpad
+            # reports ``True`` when unlocked, so the mapping is direct.
             self._attr_device_class = BinarySensorDeviceClass.LOCK
-            # 도어락은 MAIN_DEVICES 에 속해 hub 디바이스 아래로 묶입니다.
-            # 그래서 device_info.name 에는 친근한 라벨이 붙지 않으므로,
-            # entity_name 에 "Door Lock" 를 명시해 'BESTIN Door Lock' 형태로
-            # 보이게 합니다.
-            # Doorlocks live under the hub device (because they're in
-            # MAIN_DEVICES), so device_info.name does not carry a friendly
-            # label. We set the entity name to "Door Lock" so HA composes
-            # "BESTIN Door Lock" as the final friendly_name.
-            self._attr_name = FRIENDLY_TYPE_NAMES.get("doorlock", "Door Lock")
-        elif device_type == "mode":
-            # 외출(away) 모드 — iparkapp 게이트웨이에서만 노출됨.  alarm 시스템
-            # 의 무장 상태를 표시. True = 외출(무장), False = 재실(해제).
-            # iparkapp away/alarm-arm state. True = armed (unoccupied),
-            # False = disarmed (normal). No HA device_class fits perfectly;
-            # leave unset so HA renders a generic on/off binary sensor.
-            self._attr_name = FRIENDLY_TYPE_NAMES.get("mode", "Away Mode")
+        # 외출(away) 모드 — iparkapp 게이트웨이 전용. True = 외출(무장),
+        # False = 재실(해제). 딱 맞는 device_class 가 없어 미설정 상태로 두면
+        # HA 가 일반 on/off 바이너리 센서로 렌더링합니다.
+        # Away mode is iparkapp-only. True = armed (unoccupied), False =
+        # disarmed (normal). No HA device_class fits, so leaving it unset
+        # renders a generic on/off binary sensor.
 
     @property
     def is_on(self) -> bool:

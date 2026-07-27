@@ -49,7 +49,186 @@ def _cleanup_legacy_doorlock_switches(hass: HomeAssistant, entry: ConfigEntry) -
 
 
 # urlsafe-base64 hash suffix may include '_' and '-' (e.g. 'RI4_NLDU').
-_LEGACY_HEATSOURCE_RE = re.compile(r"^bestin_heatsource_\d+_supply(-[A-Z0-9_-]+)?$")
+_HASH_SUFFIX = r"(-[A-Z0-9_-]+)?"
+_LEGACY_HEATSOURCE_RE = re.compile(rf"^bestin_heatsource_\d+_supply{_HASH_SUFFIX}$")
+
+# v1.4.11 — 도어락 unique_id 가 서버 응답의 unit_num 철자에 딸려 다녔습니다.
+# ``bestin_doorlock_<n>_doorlock<n>`` 형태는 그 시절의 잔재이며, 현재 코드는
+# 항상 ``bestin_doorlock_<n>_1`` 로 고정합니다 (iparkapp._dispatch_status).
+# v1.4.11: the doorlock unique_id used to follow whichever unit_num spelling
+# the server returned. ``bestin_doorlock_<n>_doorlock<n>`` is a leftover from
+# that; current code pins it to ``bestin_doorlock_<n>_1``.
+_LEGACY_DOORLOCK_SUBTYPE_RE = re.compile(
+    rf"^bestin_doorlock_\d+_doorlock\d*{_HASH_SUFFIX}$"
+)
+
+# v1.4.11 — 'Heating supply' 센서 제거. 값의 의미가 확인된 적 없고 상수에
+# 고정되어 있었습니다 (const.ENERGY_FRIENDLY_LABELS 주석 참고).
+# v1.4.11: the "Heating supply" sensor is gone — an unconfirmed guess that in
+# practice never moved off a constant (see const.ENERGY_FRIENDLY_LABELS).
+_LEGACY_HEAT_SUPPLY_RE = re.compile(
+    rf"^bestin_energy_\d+_heat_supply(_\d+)?{_HASH_SUFFIX}$"
+)
+
+
+def _remove_entities_matching(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    pattern: re.Pattern[str],
+    domain: str | None = None,
+) -> list[str]:
+    """``unique_id`` 가 패턴과 일치하는 엔티티를 레지스트리에서 제거합니다.
+
+    Remove this config entry's registry entries whose ``unique_id`` matches
+    ``pattern`` (optionally restricted to one platform domain). Returns the
+    removed entity_ids so callers can log something specific.
+    """
+    registry = er.async_get(hass)
+    removed: list[str] = []
+    for entity_id, ent in list(registry.entities.items()):
+        if ent.config_entry_id != entry.entry_id:
+            continue
+        if domain is not None and ent.domain != domain:
+            continue
+        if not pattern.match(ent.unique_id or ""):
+            continue
+        registry.async_remove(entity_id)
+        removed.append(entity_id)
+    return removed
+
+
+def _remove_device_if_empty(hass: HomeAssistant, identifier: tuple[str, str]) -> bool:
+    """엔티티가 하나도 남지 않은 디바이스 항목을 제거합니다.
+
+    Drop a device registry entry once nothing references it any more. HA does
+    not garbage-collect devices that still belong to a live config entry, so an
+    emptied device would otherwise sit on the integration page forever showing
+    no entities.
+    """
+    dev_reg = dr.async_get(hass)
+    device = dev_reg.async_get_device(identifiers={identifier})
+    if device is None:
+        return False
+    ent_reg = er.async_get(hass)
+    if er.async_entries_for_device(ent_reg, device.id, include_disabled_entities=True):
+        return False
+    dev_reg.async_remove_device(device.id)
+    return True
+
+
+def _cleanup_legacy_doorlock_subtype(
+    hass: HomeAssistant, entry: ConfigEntry, hub: BestinHub
+) -> None:
+    """v1.4.11 마이그레이션: 유령 'BESTIN Door Lock' 디바이스를 제거합니다.
+
+    도어락 상태는 허브 디바이스의 ``binary_sensor.*_door_lock`` 이 이미 정상
+    보고하고 있습니다. 그 옆에 있던 별도 'BESTIN Door Lock' 디바이스는 예전
+    unique_id 규칙에서 만들어진 뒤 다시 채워지지 않아, 'unavailable' 엔티티
+    하나만 담은 채 남아 있었습니다.
+
+    v1.4.11 migration: remove the ghost "BESTIN Door Lock" device. The working
+    doorlock state lives on the hub device as ``binary_sensor.*_door_lock``;
+    the separate device group was minted under an older unique_id rule, never
+    repopulated, and has been sitting there holding a single permanently
+    'unavailable' entity.
+    """
+    removed = _remove_entities_matching(
+        hass, entry, _LEGACY_DOORLOCK_SUBTYPE_RE, Platform.BINARY_SENSOR.value
+    )
+    # 'doorlock:doorlock' → device.py 의 formatted_name() 이 만들던 식별자.
+    # The device identifier device.py's formatted_name() produced for the
+    # 'doorlock:doorlock' sub-type.
+    device_gone = _remove_device_if_empty(
+        hass, (DOMAIN, f"{hub.wp_version}_Doorlock")
+    )
+    if removed or device_gone:
+        LOGGER.info(
+            "v1.4.11 마이그레이션: 유령 도어락 엔티티 %d개 / 디바이스 %s 제거 / "
+            "Removed %d orphaned doorlock entities%s.",
+            len(removed),
+            "제거됨" if device_gone else "없음",
+            len(removed),
+            " and the empty 'BESTIN Door Lock' device" if device_gone else "",
+        )
+
+
+def _cleanup_heat_supply_sensors(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """v1.4.11 마이그레이션: 'Heating supply' 센서를 제거합니다.
+
+    v1.4.11 migration: drop the "Heating supply" sensor. It was a guess at what
+    the wallpad reports beyond its controllable rooms and never moved off a
+    constant value, so it is no longer created.
+    """
+    removed = _remove_entities_matching(
+        hass, entry, _LEGACY_HEAT_SUPPLY_RE, Platform.SENSOR.value
+    )
+    if removed:
+        LOGGER.info(
+            "v1.4.11 마이그레이션: 'Heating supply' 센서 %d개 제거 / "
+            "Removed %d 'Heating supply' sensor(s) — the reading was an "
+            "unconfirmed guess pinned to a constant value.",
+            len(removed),
+            len(removed),
+        )
+
+
+def _merge_main_device_into_hub(
+    hass: HomeAssistant, entry: ConfigEntry, hub: BestinHub, hub_device_id: str
+) -> None:
+    """v1.4.11 마이그레이션: 중복된 'BESTIN' 디바이스를 허브로 합칩니다.
+
+    v1.4.10 까지 MAIN_DEVICES 엔티티(도어락 / 외출 모드 / 환기)는 허브와 이름이
+    같은 별도 디바이스에 붙었습니다. 그래서 통합 페이지에 'BESTIN' 이 두 개
+    보였고, 그중 허브 쪽은 엔티티 없이 자식 디바이스 링크만 나열했습니다.
+    엔티티를 허브 디바이스로 옮긴 뒤 빈 껍데기를 지웁니다. 디바이스를 먼저
+    지우면 딸린 엔티티 레지스트리 항목까지 함께 사라져 사용자의 이름 변경 /
+    영역 지정 / 비활성화 설정을 잃게 되므로, 순서가 중요합니다.
+
+    v1.4.11 migration: fold the duplicate "BESTIN" device into the hub device.
+    Through v1.4.10 the MAIN_DEVICES entities (doorlock / away mode /
+    ventilation) attached to a device entry that shared the hub's name, so the
+    integration page listed "BESTIN" twice — and the hub copy held no entities,
+    rendering as nothing but links to its children. Reassign the entities
+    first, then delete the emptied entry: removing the device first would take
+    its entity registry entries with it, losing user renames, area assignments
+    and enable/disable state.
+    """
+    dev_reg = dr.async_get(hass)
+    legacy = dev_reg.async_get_device(
+        identifiers={(DOMAIN, f"{hub.wp_version}_{hub.model}")}
+    )
+    if legacy is None or legacy.id == hub_device_id:
+        return
+
+    ent_reg = er.async_get(hass)
+    moved = 0
+    for ent in er.async_entries_for_device(
+        ent_reg, legacy.id, include_disabled_entities=True
+    ):
+        ent_reg.async_update_entity(ent.entity_id, device_id=hub_device_id)
+        moved += 1
+
+    # 사용자가 지정한 영역 / 이름은 살아남는 쪽으로 옮깁니다 (허브 쪽에 이미
+    # 값이 있으면 건드리지 않습니다).
+    # Carry the user's area/name over to the surviving entry, without
+    # overwriting anything already set on the hub device.
+    hub_device = dev_reg.async_get(hub_device_id)
+    updates: dict[str, str] = {}
+    if legacy.area_id and hub_device is not None and not hub_device.area_id:
+        updates["area_id"] = legacy.area_id
+    if legacy.name_by_user and hub_device is not None and not hub_device.name_by_user:
+        updates["name_by_user"] = legacy.name_by_user
+    if updates:
+        dev_reg.async_update_device(hub_device_id, **updates)
+
+    dev_reg.async_remove_device(legacy.id)
+    LOGGER.info(
+        "v1.4.11 마이그레이션: 중복 'BESTIN' 디바이스 통합 (엔티티 %d개 이동) / "
+        "Merged the duplicate 'BESTIN' device into the hub device "
+        "(%d entities moved).",
+        moved,
+        moved,
+    )
 
 
 def _cleanup_legacy_heatsource_sensors(
@@ -105,8 +284,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     #   `via_device` (...). This will stop working in Home Assistant 2025.12.0.
     # ...and on HA ≥ 2025.12 it actually breaks: every entity with a missing
     # via_device parent is rendered "unavailable".
+    #
+    # v1.4.11 부터 이 디바이스는 단순한 부모 노드가 아니라, 세대에 하나뿐인
+    # 장치(도어락 / 외출 모드 / 환기)를 직접 담습니다 — device.py 참고.
+    # Since v1.4.11 this entry is not just a parent node: the one-per-home
+    # devices (doorlock / away mode / ventilation) live directly on it. See
+    # device.py.
     device_registry = dr.async_get(hass)
-    device_registry.async_get_or_create(
+    hub_device = device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, str(hub.hub_id))},
         manufacturer="HDC Labs Co., Ltd.",
@@ -114,6 +299,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         name=hub.name,
         sw_version=hub.sw_version,
     )
+
+    # 허브 디바이스가 존재해야 실행할 수 있는 v1.4.11 정리 작업들.
+    # v1.4.11 cleanups — these need the hub device to exist first.
+    _merge_main_device_into_hub(hass, entry, hub, hub_device.id)
+    _cleanup_legacy_doorlock_subtype(hass, entry, hub)
+    _cleanup_heat_supply_sensors(hass, entry)
 
     # iPark 스마트홈 앱 — new gateway type takes precedence when its key is present.
     if CONF_IPARKAPP_SITE in entry.data:
@@ -140,6 +331,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    return True
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, config_entry: ConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """UI 에서 디바이스를 직접 삭제할 수 있도록 허용합니다.
+
+    월패드에서 사라진 장치나 예전 버전이 남긴 디바이스 항목을, 통합을 다시
+    설정하지 않고도 사용자가 삭제할 수 있게 합니다. 아직 살아 있는 장치라면
+    다음 폴링에서 다시 나타납니다.
+
+    Let users delete a device from the UI. Without this hook HA greys the
+    delete button out, so stale entries left by older versions (or hardware
+    that is genuinely gone) can only be cleared by removing and re-adding the
+    whole integration. Anything still reported by the wallpad simply comes
+    back on the next poll.
+    """
     return True
 
 

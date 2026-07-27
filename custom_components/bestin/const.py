@@ -7,7 +7,7 @@ from homeassistant.const import Platform
 
 DOMAIN = "bestin"
 NAME = "BESTIN"
-VERSION = "1.4.9"
+VERSION = "1.4.12"
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -110,13 +110,12 @@ DEVICE_PLATFORM_MAP = {
     # Doorlock state is only reliably reported, not controlled. The iPark App
     # gateway exposes no control endpoint, and the RS-485 doorlock packet is
     # unverified — so this is safest as a binary_sensor (locked / unlocked).
-    # 'unit_cnt' 를 초과해 응답되는 추가 난방 온도 센서. 구체적 의미는 단지마다
-    # 상이하며, 지역난방 공급 온도일 수 있으나 확인되지 않았습니다.
-    # Extra heat-temperature reading the wallpad reports beyond the household's
-    # controllable rooms (rooms past `status_map.unit_cnt`). Exact meaning
-    # varies by complex — possibly a district-heating supply temp, possibly
-    # something else; not confirmed.
-    "heatsource": Platform.SENSOR.value,
+    #
+    # 'heatsource' (unit_cnt 를 초과해 응답되던 추가 난방 온도 값) 는 v1.4.11
+    # 에서 완전히 제거되었습니다 — 아래 ENERGY_FRIENDLY_LABELS 주석 참고.
+    # 'heatsource' (the extra heat reading the wallpad reports past
+    # ``status_map.unit_cnt``) was dropped entirely in v1.4.11 — see the
+    # ENERGY_FRIENDLY_LABELS comment below for why.
 }
 
 # 친근한 표시명 — Friendly display names for HA entities. The internal
@@ -136,8 +135,6 @@ FRIENDLY_TYPE_NAMES: dict[str, str] = {
     "ventil": "Ventilation",
     "mode": "Away Mode",
     "doorlock": "Door Lock",
-    # 'heatsource' removed in v1.4.3 — those readings now live under
-    # BESTIN Energy as 'Heating supply' (see ENERGY_FRIENDLY_LABELS).
     "energy": "Energy",
     "elevator": "Elevator",
 }
@@ -153,23 +150,43 @@ SINGLE_CHANNEL_TYPES: set[str] = {"doorlock", "gas", "fan", "ventil"}
 
 # 친근한 에너지 라벨 — Friendly per-sub_id labels for BESTIN Energy entities.
 # The raw sub_ids ("avg_elec", "mine_gas", "hwater" ...) come straight from
-# the iparkapp REST payload and are cryptic in HA. Map them to readable
-# English. Two axes: "mine_*" is the household reading, "avg_*" is the
-# complex-wide neighbor average. "heat_supply" is the floor-heating supply
-# temperature reading the cloud server reports above unit_cnt (formerly the
-# orphan "BESTIN Heat Sensor" device entry, now folded in here).
+# the iparkapp REST payload and are cryptic in HA. Two axes: "mine_*" is the
+# household reading, "avg_*" is the complex-wide neighbor average.
+#
+# v1.4.11 — 라벨을 '항목 우선' 형태로 바꿉니다. HA 디바이스 카드는 엔티티를
+# 이름순으로 정렬하므로, 이전의 "Neighbor avg ..." 접두사 방식은 우리 집
+# 사용량 5개와 이웃 평균 5개가 목록 양쪽 끝으로 갈라져 비교가 어려웠습니다.
+# 항목명을 앞에 두면 ("Gas" / "Gas (neighbor avg)") 정렬만으로 두 값이 항상
+# 나란히 붙습니다.
+#
+# v1.4.11 — commodity-first labels. HA sorts a device card's entities by
+# name, so the old "Neighbor avg <x>" prefix scattered the five household
+# readings and the five neighbor averages to opposite ends of the list, which
+# is exactly the pair you want to read side by side. Leading with the
+# commodity ("Gas" / "Gas (neighbor avg)") makes each pair sort adjacently.
+#
+# 'heat_supply' 는 v1.4.11 에서 제거되었습니다. unit_cnt 를 초과해 응답되던
+# 이 값은 의미가 확인된 적이 없고 (지역난방 공급 온도로 추정만 했습니다),
+# 실사용 기기에서 63 °C 에 고정된 채 전혀 변하지 않는 것이 확인되었습니다.
+# 'heat_supply' was removed in v1.4.11. It was only ever a guess at what the
+# wallpad reports past ``status_map.unit_cnt`` (a district-heating supply
+# temperature was the working hypothesis), and on real hardware it sits
+# pinned at a constant 63 °C — a fixed number dressed up as a sensor.
 ENERGY_FRIENDLY_LABELS: dict[str, str] = {
     "mine_elec":   "Electricity",
-    "avg_elec":    "Neighbor avg electricity",
+    "avg_elec":    "Electricity (neighbor avg)",
     "mine_gas":    "Gas",
-    "avg_gas":     "Neighbor avg gas",
-    "mine_water":  "Water",
-    "avg_water":   "Neighbor avg water",
-    "mine_hwater": "Hot water",
-    "avg_hwater":  "Neighbor avg hot water",
+    "avg_gas":     "Gas (neighbor avg)",
     "mine_heat":   "Heating",
-    "avg_heat":    "Neighbor avg heating",
-    "heat_supply": "Heating supply",
+    "avg_heat":    "Heating (neighbor avg)",
+    # 'Cold water' — 'Water' 로만 두면 'Hot water' 와 짝이 맞지 않아 어느 쪽이
+    # 어느 계량기인지 한눈에 들어오지 않습니다.
+    # 'Cold water' rather than plain 'Water': paired against 'Hot water', the
+    # bare noun reads as a total rather than the other half of the pair.
+    "mine_hwater": "Hot water",
+    "avg_hwater":  "Hot water (neighbor avg)",
+    "mine_water":  "Cold water",
+    "avg_water":   "Cold water (neighbor avg)",
 }
 
 
