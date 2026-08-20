@@ -60,6 +60,8 @@ from .const import (
     DeviceInfo,
     DeviceProfile,
 )
+from .errors import IparkAppAuthError, IparkAppConnectionError
+from .notify import async_clear_unavailable, async_notify_unavailable
 from .iparkapp_const import (
     AJAX_HEADERS,
     CONF_IPARKAPP_PASSWORD,
@@ -140,6 +142,11 @@ ABSENT_CLASS_THRESHOLD = 5
 # on its own — see the ``_class_next_probe`` note in __init__ for why this is
 # a backoff rather than an off-switch.
 ABSENT_CLASS_RETRY_CYCLES = 120
+
+# 세션 갱신이 이만큼 연속 실패하면 HA 알림을 띄웁니다.
+# Consecutive session-refresh failures before raising a user-facing
+# notification. Kept above 1 so a single dropped request stays silent.
+REFRESH_FAILURES_BEFORE_NOTIFY = 2
 
 _SERVICE_RESULT_RE = re.compile(r"<service\b[^>]*\bresult\s*=\s*\"([^\"]*)\"")
 _ATTR_RE = re.compile(r"([\w:.-]+)\s*=\s*\"([^\"]*)\"")
@@ -246,6 +253,15 @@ class BestinIparkAppAPI:
         self._class_next_probe: dict[str, int] = {}
         self._class_backed_off: set[str] = set()
 
+        # 세션 갱신 연속 실패 횟수 — Consecutive session-refresh failures.
+        # 첫 실패는 흔한 일시적 끊김이므로 알리지 않고, 연속으로 실패할 때만
+        # (기본 15분 주기 → 약 30분) 사용자에게 알립니다.
+        # One failed refresh is an ordinary blip; only a run of them means the
+        # complex server is actually down, so the notification waits for
+        # ``REFRESH_FAILURES_BEFORE_NOTIFY`` in a row (~30 min at the default
+        # 15 min refresh interval).
+        self._refresh_failures: int = 0
+
     # ------------------------------------------------------------------
     # 라이프사이클 — Lifecycle
     # ------------------------------------------------------------------
@@ -268,6 +284,9 @@ class BestinIparkAppAPI:
             ),
         ]
         self.duty_cycle.start(self.hass)
+        # 재시도 끝에 살아난 경우 남아 있던 장애 알림을 지웁니다.
+        # Clear any outage notification left over from earlier retries.
+        async_clear_unavailable(self.hass, self.entry)
         LOGGER.info(
             "iPark 스마트홈 앱 연동 시작 — Started iParkApp client for %s (%s)",
             self.site.get("sitename", self.host),
@@ -301,6 +320,21 @@ class BestinIparkAppAPI:
             await self._login()
         except Exception as ex:  # noqa: BLE001
             LOGGER.exception("세션 갱신 실패 — Session refresh failed: %s", ex)
+            self._refresh_failures += 1
+            if self._refresh_failures >= REFRESH_FAILURES_BEFORE_NOTIFY:
+                async_notify_unavailable(
+                    self.hass,
+                    self.entry,
+                    f"{type(ex).__name__}: {ex}",
+                )
+        else:
+            if self._refresh_failures:
+                LOGGER.info(
+                    "세션 갱신 복구 — Session refresh recovered after %d failure(s).",
+                    self._refresh_failures,
+                )
+            self._refresh_failures = 0
+            async_clear_unavailable(self.hass, self.entry)
 
     # ------------------------------------------------------------------
     # 인증 — Authentication
@@ -344,16 +378,39 @@ class BestinIparkAppAPI:
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 resp.raise_for_status()
-                payload = await resp.json(content_type=None)
-                if payload.get("ret") != "success":
+                try:
+                    payload = await resp.json(content_type=None)
+                except (aiohttp.ClientError, ValueError) as ex:
+                    # 서버가 점검 페이지나 HTML 오류를 돌려주는 경우입니다.
+                    # A maintenance page or HTML error instead of the JSON
+                    # reply — the server is up but not serving the app.
+                    raise IparkAppConnectionError(
+                        f"로그인 응답을 해석할 수 없습니다 / "
+                        f"Login reply was not JSON: {ex}"
+                    ) from ex
+                ret = str(payload.get("ret", ""))
+                if ret != "success":
                     LOGGER.error(
                         "로그인 실패 — iParkApp login failed: %s", payload
                     )
-                    raise RuntimeError(f"iparkapp login failed: {payload}")
+                    detail = str(payload.get("msg") or payload)
+                    # '..._fair' 는 서버가 자격 증명을 거부했다는 뜻입니다
+                    # (config_flow 의 v1 로그인과 동일한 규칙). 그 외의 실패는
+                    # 서버 쪽 문제로 보고 재시도 대상으로 둡니다.
+                    # '..._fair' is the server's credential rejection (same
+                    # rule config_flow uses for the v1 login). Anything else
+                    # is treated as a server-side fault worth retrying —
+                    # wrongly prompting for a password during an outage is
+                    # worse than retrying a genuinely wrong one.
+                    if "fair" in ret.lower():
+                        raise IparkAppAuthError(detail)
+                    raise IparkAppConnectionError(detail)
                 LOGGER.debug("iParkApp login OK: %s", payload)
-        except aiohttp.ClientError as ex:
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as ex:
             LOGGER.error("로그인 네트워크 오류 — iParkApp login network error: %s", ex)
-            raise
+            raise IparkAppConnectionError(
+                f"{type(ex).__name__}: {ex}" if str(ex) else type(ex).__name__
+            ) from ex
 
     async def _prime_session(self) -> None:
         """세션 프라이밍 — Touch index.php so the wallpad IPC channel registers."""

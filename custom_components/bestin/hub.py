@@ -29,6 +29,7 @@ from .const import (
 from .center import BestinCenterAPI
 from .controller import BestinController
 from .iparkapp import BestinIparkAppAPI
+from .errors import BestinIparkAppError, IparkAppConnectionError
 from .iparkapp_const import CONF_IPARKAPP_SITE, SMART_HOME_APP
 from .until import check_ip_or_serial
 
@@ -481,19 +482,45 @@ class BestinHub:
             )
 
     async def async_initialize_iparkapp(self) -> None:
-        """iPark 스마트홈 앱 — Initialise the new gateway type."""
+        """iPark 스마트홈 앱 — Initialise the new gateway type.
+
+        서버 장애/자격 증명 오류는 타입 그대로 올려보냅니다. ``__init__`` 이
+        그 타입을 보고 재시도할지 사용자에게 재설정을 요구할지 결정합니다.
+        실패한 API 객체는 반드시 ``stop()`` 해야 합니다 — 생성자에서 이미
+        ``aiohttp.ClientSession`` 을 열었기 때문에, 그냥 버리면 재시도할 때마다
+        'Unclosed client session' 이 하나씩 쌓입니다.
+
+        Typed failures propagate unchanged so ``__init__`` can decide between
+        "retry later" and "ask the user to reconfigure". The half-built API
+        must still be stopped: its constructor already opened an
+        ``aiohttp.ClientSession``, so dropping the reference would leak one
+        session — and one "Unclosed client session" warning — per retry.
+        """
+        self.api = BestinIparkAppAPI(
+            self.hass,
+            self.entry,
+            self.entity_groups,
+            self.hub_id,
+            self.async_add_device_callback,
+        )
         try:
-            self.api = BestinIparkAppAPI(
-                self.hass,
-                self.entry,
-                self.entity_groups,
-                self.hub_id,
-                self.async_add_device_callback,
-            )
             await self.api.start()
+        except BestinIparkAppError:
+            await self._async_discard_api()
+            raise
         except Exception as ex:
-            self.api = None
-            raise RuntimeError(
+            await self._async_discard_api()
+            raise IparkAppConnectionError(
                 f"Failed to initialize Bestin iParkApp hub. Host: {self.hub_id}. "
                 f"Error: {ex!s}"
-            )
+            ) from ex
+
+    async def _async_discard_api(self) -> None:
+        """실패한 API 객체를 정리합니다 — Tear down a half-started API."""
+        api, self.api = self.api, None
+        if api is None:
+            return
+        try:
+            await api.stop()
+        except Exception as ex:  # noqa: BLE001 — cleanup must not mask the cause
+            LOGGER.debug("iParkApp cleanup after failed start: %s", ex)

@@ -5,14 +5,37 @@ from __future__ import annotations
 import asyncio
 import re
 
-from homeassistant.config_entries import ConfigEntry, ConfigEntryNotReady
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .const import DOMAIN, LOGGER, PLATFORMS, CONF_SESSION
+from .errors import BestinIparkAppError, IparkAppAuthError
 from .hub import BestinHub
 from .iparkapp_const import CONF_IPARKAPP_SITE
+from .notify import (
+    async_clear_unavailable,
+    async_notify_auth_failed,
+    async_notify_unavailable,
+)
+
+# 단지 서버가 죽었을 때 재시도 간격 — Minimum spacing between real login
+# attempts while the complex server is unreachable. HA 자체 백오프는 최대
+# 80초 남짓이라 다운된 서버를 계속 두드리게 됩니다. 실제 접속 시도는 이
+# 쿨다운으로 5분에 한 번으로 묶고, 그 사이에 들어오는 HA 재시도는 네트워크를
+# 건드리지 않고 곧바로 ConfigEntryNotReady 로 돌려보냅니다.
+# HA's own setup backoff tops out around 80 s, which would keep hammering a
+# server that is down. The cooldown pins actual login attempts to one per five
+# minutes; HA retries landing inside the window return immediately without
+# touching the network.
+IPARKAPP_RETRY_SECONDS = 300
+
+# entry_id → 마지막 실제 로그인 시도 시각 (monotonic).
+# entry_id → monotonic timestamp of the last real login attempt. Module-level
+# so it survives the config entry being torn down and set up again.
+_LAST_IPARKAPP_ATTEMPT: dict[str, float] = {}
 
 
 def _cleanup_legacy_doorlock_switches(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -266,6 +289,73 @@ def _cleanup_legacy_heatsource_sensors(
         )
 
 
+async def _async_setup_iparkapp(
+    hass: HomeAssistant, entry: ConfigEntry, hub: BestinHub
+) -> None:
+    """iParkApp 게이트웨이 설정 — Start the iParkApp gateway, or arrange a retry.
+
+    단지 중앙 서버는 종종 통째로 내려갑니다 (그럴 때 휴대폰 앱도 '알림 호출에
+    실패했습니다' 를 띄웁니다). v1.4.12 까지는 이 경우 HA 가 'Error setting up
+    entry' 한 줄만 남기고 끝났습니다. 이제는:
+
+      1. 5분 간격으로 자동 재시도하고 (``IPARKAPP_RETRY_SECONDS``),
+      2. 무슨 일이 벌어졌는지 HA 알림으로 알리며,
+      3. 복구되면 알림이 스스로 사라집니다.
+
+    The complex server goes down as a whole from time to time — when it does,
+    the phone app fails too. Through v1.4.12 that produced a bare "Error
+    setting up entry" and nothing else. Now the entry retries on a five-minute
+    cadence, says what happened through a persistent notification, and clears
+    the notification once the server answers again.
+    """
+    entry_id = entry.entry_id
+    now = hass.loop.time()
+    last_attempt = _LAST_IPARKAPP_ATTEMPT.get(entry_id)
+    if last_attempt is not None:
+        wait = IPARKAPP_RETRY_SECONDS - (now - last_attempt)
+        if wait > 0:
+            # HA 의 짧은 백오프로 불려온 재시도입니다. 서버를 다시 두드리지
+            # 않고 그대로 돌려보냅니다.
+            # An HA backoff retry inside our cooldown: hand it straight back
+            # without another request to a server we know is down.
+            hass.data[DOMAIN].pop(entry_id, None)
+            raise ConfigEntryNotReady(
+                f"iParkApp server unreachable; next attempt in {wait:.0f}s."
+            )
+
+    _LAST_IPARKAPP_ATTEMPT[entry_id] = now
+    try:
+        await hub.async_initialize_iparkapp()
+    except IparkAppAuthError as ex:
+        # 자격 증명 거부는 재시도로 풀리지 않습니다. 그래도 항목을 죽이지
+        # 않고 같은 5분 주기를 유지합니다 — 서버가 장애 중에 로그인 실패로
+        # 응답하는 경우가 있어, 재설정을 강요하면 멀쩡한 설정을 지우게 됩니다.
+        # 대신 알림으로 무엇을 해야 하는지 명확히 알립니다.
+        # A rejected credential will not fix itself, but the entry keeps the
+        # same five-minute cadence rather than demanding reconfiguration: the
+        # server has been seen answering "login failed" mid-outage, and
+        # forcing a re-setup then would throw away a working configuration.
+        # The notification says plainly what to do if it really is the
+        # password.
+        await hub.async_close()
+        hass.data[DOMAIN].pop(entry_id, None)
+        async_notify_auth_failed(hass, entry, str(ex))
+        raise ConfigEntryNotReady(f"iParkApp login rejected: {ex}") from ex
+    except BestinIparkAppError as ex:
+        await hub.async_close()
+        hass.data[DOMAIN].pop(entry_id, None)
+        async_notify_unavailable(
+            hass,
+            entry,
+            str(ex),
+            retry_minutes=IPARKAPP_RETRY_SECONDS // 60,
+        )
+        raise ConfigEntryNotReady(f"iParkApp server unreachable: {ex}") from ex
+
+    _LAST_IPARKAPP_ATTEMPT.pop(entry_id, None)
+    async_clear_unavailable(hass, entry)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the BESTIN integration."""
     _cleanup_legacy_doorlock_switches(hass, entry)
@@ -309,7 +399,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # iPark 스마트홈 앱 — new gateway type takes precedence when its key is present.
     if CONF_IPARKAPP_SITE in entry.data:
         LOGGER.info("Start iParkApp initialization.")
-        await hub.async_initialize_iparkapp()
+        await _async_setup_iparkapp(hass, entry, hub)
     elif CONF_SESSION not in entry.data:
         try:
             await asyncio.wait_for(hub.connect(), timeout=5)
