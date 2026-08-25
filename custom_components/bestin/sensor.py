@@ -219,7 +219,21 @@ class BestinSensor(BestinDevice, SensorEntity):
 
     @property
     def native_value(self):
-        """Return the state of the sensor."""
+        """Return the state of the sensor.
+
+        ``None`` 은 '값 없음' 을 뜻하며 HA 는 이를 '알 수 없음' 으로 표시하고
+        통계에도 기록하지 않습니다. 단지 검침 서버가 값을 올리지 않는 동안
+        에너지 센서가 이 경로를 탑니다 (iparkapp.latest_energy_reading 참고).
+        스케일 변환 함수에 None 을 넘기면 TypeError 가 나므로 먼저 걸러냅니다.
+
+        ``None`` means "no reading": HA renders it as Unknown and records no
+        statistics for it. The energy sensors take this path while the
+        complex's metering backend publishes nothing (see
+        ``iparkapp.latest_energy_reading``). Filter it out before the scaling
+        conversions, which would raise TypeError on None.
+        """
+        if self._device_info.state is None:
+            return None
         factor = VALUE_CONVERSION.get(self._device_info.device_type)
         if callable(factor):
             return factor(self._device_info.state, self.hub.wp_version)

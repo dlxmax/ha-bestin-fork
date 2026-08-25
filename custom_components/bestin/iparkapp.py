@@ -125,6 +125,46 @@ def _format_device_name(
     return device_room
 
 
+def latest_energy_reading(data: list[Any]) -> float | None:
+    """월별 시리즈에서 최신 검침값을 뽑습니다 — Latest month's reading, or
+    ``None`` when the complex has published nothing at all.
+
+    ``getEnergyAvr_monthly_*.php`` 는 세 달치를 한 번에 돌려줍니다. 단지
+    검침 서버가 값을 올리지 않는 동안에는 요청한 세 달이 **모두** ``"0"``
+    으로 내려옵니다 — 지난달까지 실제 사용량이 있었더라도 그렇습니다.
+    이때 0 을 그대로 쓰면 HA 에는 '이번 달 사용량 0' 이라는 거짓 값이
+    기록됩니다. 게다가 mine_* 센서는 ``total_increasing`` 이라, 값이 0 으로
+    떨어졌다가 복구되는 순간 HA 가 이를 '계량기 리셋' 으로 해석해 에너지
+    대시보드에 없던 사용량을 통째로 더해 넣습니다.
+
+    그래서 세 달이 전부 0/해석 불가이면 '검침값 없음' 으로 보고 ``None``
+    을 돌려줍니다 (HA 표시: '알 수 없음'). 지난달 값이 살아 있는데 이번
+    달만 0 인 경우는 월초에 정상적으로 일어나는 일이므로 0 을 그대로
+    씁니다.
+
+    ``getEnergyAvr_monthly_*.php`` returns three months at once. While the
+    complex's metering backend publishes nothing, **all three** come back as
+    ``"0"`` — including months that genuinely had usage. Reporting that 0
+    writes a false "used nothing this month" into HA, and because the mine_*
+    sensors are ``total_increasing``, the dip to 0 and later recovery reads
+    to HA as a meter reset: it adds the whole recovered total to the Energy
+    dashboard as fresh consumption.
+
+    So an all-zero (or unparseable) series means "no reading", and we return
+    ``None`` — HA renders that as Unknown and records no statistics for it. A
+    zero newest month with real earlier months is just the start of a billing
+    period, and passes through as a real 0.
+    """
+    numbers: list[float | None] = []
+    for raw in data:
+        try:
+            numbers.append(float(raw))
+        except (TypeError, ValueError):
+            numbers.append(None)
+    if not any(numbers):  # every month is 0.0 or unparseable
+        return None
+    return numbers[-1]
+
 # 깨진 XML 응답 복구용 패턴 — Patterns used to salvage malformed replies.
 # 월패드의 난방 control 응답은 XML 로서 유효하지 않지만, 우리가 필요로 하는
 # 태그들 자체는 온전한 self-closing 형태입니다.
@@ -1073,11 +1113,18 @@ class BestinIparkAppAPI:
             data = series.get("data", [])
             if not data:
                 continue
-            last = data[-1]
-            try:
-                value = float(last)
-            except (TypeError, ValueError):
-                value = last
+            value = latest_energy_reading(data)
+            if value is None:
+                # 단지 검침 서버가 값을 올리지 않는 상태입니다. 0 으로
+                # 기록하지 않고 '알 수 없음' 으로 둡니다 —
+                # ``latest_energy_reading`` 주석 참고.
+                # The complex's metering backend is publishing nothing; leave
+                # the sensor Unknown rather than recording a false zero. See
+                # ``latest_energy_reading``.
+                LOGGER.debug(
+                    "에너지 미검침 — no %s reading published for %r: %r",
+                    kind, name, data,
+                )
             # 시리즈 이름으로 '나의 세대' / '전체 평균' 구분
             # Differentiate "my home" vs "complex average" by series name.
             scope = "mine" if "나의" in name or "my" in name.lower() else "avg"
