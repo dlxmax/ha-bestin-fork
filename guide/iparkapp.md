@@ -123,24 +123,24 @@ i-parklife.com 디렉터리에서 60여 개 단지가 자동으로 조회됩니�
    *Per-room presets — bedroom on Sleep while living room stays on Comfort.*
 3. **휴가 일정은 서비스 호출로** — `bestin.set_vacation_window` 가 시작·복귀 시각을 받아 자동으로 프리셋을 전환합니다.  
    *Vacation date scheduling via `bestin.set_vacation_window` — pass start + end datetimes; presets transition automatically.*
-4. **솔직한 경제성**: 슬로우 듀티 사이클 자체의 순수한 절감 효과는 5-15% 범위, 통상 8-12% 정도. 핵심 절감 동력은 듀티 사이클 자체보다 **듀티 사이클 덕분에 야간 setback 을 실용적으로 사용할 수 있게 되는 점** 입니다. 자세한 수치는 §11 (로컬 연구 파일) 참조.  
-   *Honest economics: pure duty-cycle savings land at 5-15 % (typically 8-12 %). The bigger lever is **the duty cycle making night setback practical** — it's the setback that saves money, the duty cycle just removes the slow-recovery pain. Full numbers in research file §11.*
+4. **절감 효과는 아직 측정되지 않았습니다.** 이전 버전의 이 문서는 "5-15 % 절감" 같은 수치와 여러 표준·문헌을 근거로 들었지만, 그 연구 파일은 AI 가 작성했고 검증되지 않았으며 일부 인용은 실재하지 않습니다. 확실한 것은 물리 법칙뿐입니다: 실내 평균 온도를 낮추면 (야간 setback 포함) 항상 열이 덜 듭니다. 바닥 축열이 크면 절감 폭이 줄고 회복이 느릴 뿐, 회복 난방이 절감을 "상쇄" 하지는 않습니다. 난방비가 유량 (m³) 으로 부과되는 세대는 HA 의 난방 검침 센서로 직접 비교해 보는 것이 가장 확실합니다.  
+   *Savings have not been measured. Earlier versions of this page quoted "5-15 % savings" and a list of standards and papers, but that research file was written by an AI, never verified, and some of its citations don't exist. What is certain is physics: a lower average indoor temperature, night setback included, always uses less heat. A heavy floor makes the saving smaller and recovery slower; recovery does not "cancel" the saving. If your heating is billed by volume (m³), compare with the heating meter sensor in HA.*
 
 ### 프리셋 / Presets
 
-| 프리셋 / Preset | 셋포인트 / Setpoint | 듀티 사이클 주기 / Cycle (iparkapp only) | 용도 / Use case | 절감 (vs 22°C 항시) / Savings vs 22°C continuous |
-|---|---|---|---|---|
-| **None** _(기본 / default)_ | 사용자 지정 / user | — (passthrough) | 듀티 사이클 없음. 월패드 기본 동작. / No duty cycling; wallpad default. | 0 % |
-| **Comfort / 쾌적** | 22°C | 15 분 / min | 활동 시간대. / Active occupancy. | baseline |
-| **Eco / 에코** | 20°C | 20 분 / min | 절감 우선. / Cost-conscious. | -3 to -5 % |
-| **Sleep / 수면** | 17°C | 25 분 / min | 야간 8-10 시간. 8시간 OFF 보다 안전 + 효율. / Overnight 8-10 h. Safer & more efficient than full-off. | -10 to -15 % |
-| **Away / 외출** | 16°C | 25 분 / min | 출근·짧은 외출. / Work day or short trip. | -8 to -12 % |
-| **Vacation / 휴가** | 13°C | 30 분 / min | 다일 부재 (7-14일). / Multi-day absence. | -20 to -30 % |
-| **Frost / 결빙방지** | 9°C | 30 분 / min | 장기 미사용 / 동결방지. / Long unoccupied / pipe protection. | -40 to -50 % |
-| **Boost** | 23°C | 10 분 / min | 휴가 복귀 후 빠른 가열. **상시 사용 비권장** (밸브 마모). / Post-vacation recovery. **Not for daily use** (valve wear). | n/a (recovery) |
+| 프리셋 / Preset | 셋포인트 / Setpoint | 듀티 사이클 주기 / Cycle (iparkapp only) | 용도 / Use case |
+|---|---|---|---|
+| **None** _(기본 / default)_ | 사용자 지정 / user | 없음 / none (passthrough) | 듀티 사이클 없음. 월패드 기본 동작. / No duty cycling; wallpad default. |
+| **Comfort / 쾌적** | 22°C | 15 분 / min | 활동 시간대. / Active occupancy. |
+| **Eco / 에코** | 20°C | 20 분 / min | 절감 우선. / Cost-conscious. |
+| **Sleep / 수면** | 17°C | 25 분 / min | 야간. / Overnight. |
+| **Away / 외출** | 16°C | 25 분 / min | 출근·짧은 외출. / Work day or short trip. |
+| **Vacation / 휴가** | 13°C | 30 분 / min | 여러 날 부재. / Multi-day absence. |
+| **Frost / 결빙방지** | 9°C | 30 분 / min | 장기 미사용. / Long unoccupied. |
+| **Boost** | 23°C | 10 분 / min | 빠른 가열. 펄스가 잦아 상시 사용은 권하지 않습니다. / Fast warm-up. Pulses often, so not for daily use. |
 
-> **8시간 완전 OFF 습관에 대해 / On the "8 hours fully off" habit:** 안전하지만 최적은 아닙니다. 바닥이 너무 식으면 아침 회복 에너지가 절감을 상쇄하고, 차가운 바닥에 결로가 생길 수 있습니다. **Sleep 모드 (17°C)** 가 같은 8시간 동안 더 적은 에너지를 쓰면서 아침에 빠르게 회복합니다.  
-> *Safe but not optimal. Letting the floor get too cold means morning rebound energy cancels the savings, and the cold floor can develop condensation. **Sleep mode (17 °C)** uses less energy over the same 8 hours and recovers faster in the morning.*
+> **밤새 끄기 vs Sleep 프리셋 / Off overnight vs the Sleep preset:** 완전히 끄는 쪽이 열은 가장 적게 씁니다. 대신 바닥이 많이 식어 아침 회복이 몇 시간 걸립니다. Sleep (17°C) 은 열을 조금 더 쓰는 대신 아침에 덜 춥습니다. 어느 쪽이 나은지는 비용이 아니라 쾌적성의 문제입니다.  
+> *Turning the heat fully off overnight uses the least heat, but the floor cools further and takes hours to recover. Sleep (17 °C) uses a little more heat and leaves the morning less cold. Which is better is a comfort question, not a cost one.*
 
 ### 자동화 / Automations — Blueprints
 
@@ -191,17 +191,17 @@ i-parklife.com 디렉터리에서 60여 개 단지가 자동으로 조회됩니�
 iparkapp 게이트웨이에서 활성 프리셋이 슬로우 듀티 사이클을 트리거할 때:
 
 ```
-temp_error = user_setpoint - current_temp
+temp = 매핑된 객실 센서 값, 없으면 월패드 값 / mapped room sensor, else the wallpad reading
+temp_error = user_setpoint - temp
 duty% = clamp(0, 100, (temp_error / proportional_band) × 100)
-if 0 < temp_error < 0.5°C and duty > 50%:
-    duty *= 0.8   # 셋포인트 근접 시 듀티 감소 / anti-overshoot near setpoint
+ON 시간 = cycle × duty% (사이클 시작부터) / ON for cycle × duty% from the start of each cycle
 ```
 
-추가 제약 / additional constraints: 프리셋별 최소 on / off 시간 (밸브·보일러 보호), 듀티 변화 데드밴드 (채터 방지). 자세한 수치는 `duty_cycle.py` 의 `PRESET_PROFILES` 참조.  
-*See `PRESET_PROFILES` in `duty_cycle.py` for the exact numbers.*
+추가 제약 / additional constraint: 프리셋별 최소 on / off 시간. 수치는 `duty_cycle.py` 의 `PRESET_PROFILES` 참조.  
+*Plus per-preset minimum on/off times. See `PRESET_PROFILES` in `duty_cycle.py` for the numbers.*
 
-근거 / Sources: IEA ECES Task 32 (2018), ASHRAE HVAC Applications (2019), EN 12531, VDI 6030, OJ Electronics OCD5, Honeywell Bulletin 41-353, Uponor Design Guide (2020). 전체 인용 + 경제성 분석 + 밸브 수명 분석은 로컬 연구 파일 (`temp/research/ondol_duty_cycle_research.md`, gitignored) 참조.  
-*Full citations + economics + valve-lifetime analysis in the local research file (`temp/research/ondol_duty_cycle_research.md`, gitignored).*
+순수 비례 제어라 방 온도는 setpoint 보다 약간 아래에서 안정되는 경향이 있습니다. 프리셋 수치는 검증되지 않은 연구 파일에서 왔고, 실측으로 조정되지 않았습니다.  
+*Proportional-only control tends to settle slightly below the setpoint. The preset numbers came from the unverified research file and have not been tuned against measurements.*
 
 ### 알려진 제한 / Known caveats
 
@@ -213,8 +213,8 @@ if 0 < temp_error < 0.5°C and duty > 50%:
   *Hands control back to the wallpad on shutdown (v1.4.11). If the controller stops mid-ON-pulse, the wallpad is left holding an inflated current+5 °C setpoint with nobody to walk it back. Before stopping, the integration sends the user's real setpoint as `on/<setpoint>` so the wallpad's onboard thermostat takes over — ON rather than OFF, because unsmoothed heating at the right temperature beats a cold floor in a Korean winter. Capped at 10 s so an unresponsive server can't block HA shutdown.*
 - **다른 가족이 월패드를 직접 조작하면**, 다음 폴링에서 그 값이 듀티 사이클 컨트롤러로 흡수됩니다. 의도된 값이 아니면 HA 에서 다시 설정.  
   *If someone changes the setpoint at the wallpad directly, the next poll adopts it. Re-set in HA if not desired.*
-- **밸브 수명 vs 절감.** 슬로우 듀티 사이클은 분배기 액추에이터 사이클을 약 5-10 배 늘려 통상 수명을 단축합니다 (대략 약 5-8년). 본 통합의 기본값 (None — 듀티 사이클 비활성) 을 유지하면 마모 가속이 없습니다. 자세한 분석은 연구 파일 §10.  
-  *Slow duty cycling accelerates manifold actuator cycling ~5-10×, shortening typical life to roughly 5-8 years. Default (None — duty cycling off) avoids the wear. Full analysis in research file §10.*
+- **밸브 동작 횟수가 늘어납니다.** 듀티 사이클은 분배기 구동기를 사이클마다 열고 닫습니다. 수명에 미치는 영향은 측정된 자료가 없습니다 (이전 버전의 "5-8년" 수치는 근거가 없었습니다). 기본값 (None) 은 듀티 사이클을 쓰지 않습니다.  
+  *More valve operations. Duty cycling opens and closes the manifold actuators every cycle. There is no measured data on what that does to their life (the "5-8 years" figure in earlier versions had no basis). The default (None) does not duty cycle.*
 
 ## 디버깅 / Debugging
 

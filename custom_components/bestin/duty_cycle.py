@@ -3,16 +3,17 @@
 월패드의 이진 on/off 와 setpoint 만으로는 바닥난방의 큰 열관성에 비해 너무 거친
 제어가 됩니다. 본 모듈은 minutes 단위 사이클로 부드러운 비례 제어를 적용합니다
 (빠른 PWM 이 아니라 분 단위의 슬로우 시간 비례 제어 — duty cycle 변조).
-파라미터는 ``temp/research/ondol_duty_cycle_research.md`` 의 연구 결과
-(IEA / ASHRAE / EN / VDI / OJ Electronics 등) 에서 가져왔습니다.
+파라미터는 ``temp/research/ondol_duty_cycle_research.md`` 에서 가져온 출발값
+입니다. 그 파일은 검증되지 않았으므로 (파일 머리의 정오표 참고) 실측으로
+조정해야 합니다.
 
 The wallpad's binary on/off + setpoint is too coarse for the high thermal mass
 of a Korean radiant floor. This module layers a *slow duty-cycle* (time-
 proportional) controller on top — cycle periods are minutes, not microseconds,
 so this is duty-cycle / time-proportional control, not high-frequency PWM.
-All parameters are sourced from the research archived at
-``temp/research/ondol_duty_cycle_research.md`` (IEA, ASHRAE, EN 12531,
-VDI 6030, OJ Electronics, Honeywell, Uponor — see the doc for citations).
+Parameters are starting guesses taken from
+``temp/research/ondol_duty_cycle_research.md``. That file is unverified (see
+the errata at its top), so tune them against measurements.
 
 설계 원칙 / Design principles:
   - 비례 제어 (P) + 데드밴드 — proportional control with deadband.
@@ -80,8 +81,8 @@ class PresetProfile:
     overshoot_factor: float = 0.8
 
 
-# 프리셋 → 프로파일. 연구 §10.7 + §12 의 권장값에서 가져옴.
-# Profiles drawn from research §10.7 + §12 recommended defaults.
+# 프리셋 → 프로파일. 검증되지 않은 연구 파일 §10.7 + §12 의 출발값.
+# Profiles: unverified starting values from research file §10.7 + §12.
 PRESET_PROFILES: dict[str, PresetProfile] = {
     PRESET_NONE: PresetProfile(
         name=PRESET_NONE, canonical_setpoint_c=22.0,
