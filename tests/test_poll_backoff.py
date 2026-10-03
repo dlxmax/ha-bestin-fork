@@ -300,9 +300,25 @@ api11 = thermo_api(answers=False)
 check("no room answered yet: thermostats asked every poll", run_polls(api11, 3), 3)
 api12 = thermo_api(answers=False)
 run_polls(api12, 1)
-api12._class_ever_ok.add(("temper", 1))
-check("  ...back to the 30 minute idle poll once one answers",
-      run_polls(api12, 10) - 1, 1)
+api12._class_ever_ok.update(("temper", n) for n in ipc.ROOM_PROBE_RANGE if n != 2)
+check("one room still silent: thermostats asked every poll",
+      run_polls(api12, 4) - 1, 4)
+api12._class_ever_ok.add(("temper", 2))
+check("  ...back to the 30 minute idle poll once every room answers",
+      run_polls(api12, 10) - 5, 1)
+api13 = thermo_api()
+api13._class_ever_ok.discard(("temper", 2))
+api13._room_exists[("temper", 2)] = False
+run_polls(api13, 10)
+check("  ...a room known to be absent does not hold the retry",
+      api13.calls.count("temper"), ROOMS - 1)
+api14 = thermo_api(answers=False)
+run_polls(api14, 1)
+api14._class_ever_ok.update(("temper", n) for n in ipc.ROOM_PROBE_RANGE if n != 2)
+api14._class_next_probe[("temper", 2)] = 10**6
+run_polls(api14, 10)
+check("  ...nor does a backed-off room",
+      api14.calls.count("temper"), ROOMS + ROOMS - 1)
 
 
 # --- v1.4.17: never more than MAX_CONCURRENT_REQUESTS in flight -------------

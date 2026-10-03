@@ -917,19 +917,37 @@ class BestinIparkAppAPI:
                 coros.append(self._fetch_class(cls))
 
         await asyncio.gather(*coros, return_exceptions=True)
-        if temper_due and not any(
-            key[0] == "temper" for key in self._class_ever_ok if isinstance(key, tuple)
-        ):
-            # 아직 한 방도 응답하지 않았으면 다음 폴링에서 다시 묻습니다.
-            # v1.4.18 까지는 시작 직후 한 번 실패하면 모든 온도조절기가 30분
+        if temper_due and self._temper_rooms_pending():
+            # 아직 응답하지 않은 방이 있으면 다음 폴링에서 다시 묻습니다.
+            # v1.4.18 까지는 시작 직후 한 방이 실패하면 그 온도조절기가 30분
             # 동안 '사용 불가' 였습니다.
-            # No room has answered yet: ask again on the next poll. Up to
-            # v1.4.18 one failed poll at startup left every thermostat
-            # unavailable for 30 minutes. Rooms that never answer still back
-            # off per room, see _fetch_class.
+            # A room has not answered yet: ask again on the next poll. Up to
+            # v1.4.18 a room that failed once at startup stayed unavailable
+            # for 30 minutes. Rooms that never answer still back off per
+            # room, see _fetch_class.
             self._temper_next_poll = 0.0
         elif temper_due and not self._heating_active():
             self._temper_next_poll = now + THERMOSTAT_IDLE_POLL_SECONDS
+
+    def _temper_rooms_pending(self) -> bool:
+        """응답을 기다리는 방이 있는지 / Is a room still waiting for its first
+        answer?
+
+        한 번도 응답하지 않았고, 없는 방으로 판정되거나 백오프되지 않은 방을
+        셉니다.
+
+        Counts rooms that have never answered and are neither known to be
+        absent nor backed off.
+        """
+        for n in ROOM_PROBE_RANGE:
+            key = ("temper", n)
+            if (
+                key not in self._class_ever_ok
+                and self._room_exists.get(key, True)
+                and self._poll_cycle >= self._class_next_probe.get(key, 0)
+            ):
+                return True
+        return False
 
     def _heating_active(self) -> bool:
         """난방 중인 방이 있는지 / Is any room heating or duty-cycled?
