@@ -5,8 +5,8 @@
 > 한국 BESTIN / 현대 IPARK 월패드용 Home Assistant 커스텀 컴포넌트.  
 > *Home Assistant custom component for Korean BESTIN / Hyundai IPARK wallpads.*
 
-본 저장소는 [원본 `lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 을 포크하여, 같은 단지에서도 동작하지 않던 기존 두 가지 방식을 보완하는 세 번째 옵션 — **iPark 스마트홈 앱** — 을 추가합니다. 자세한 프로젝트 소개는 [ABOUT.md](./ABOUT.md) 참조.  
-*This repo forks [the upstream `lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) and adds a third gateway — **iPark Smarthome App** — that fills the gap when the two existing methods don't work in a given complex. See [ABOUT.md](./ABOUT.md) for the full project overview.*
+본 저장소는 [원본 `lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 을 포크하여, 같은 단지에서도 동작하지 않던 기존 두 가지 방식을 보완하는 세 번째 옵션인 **iPark 스마트홈 앱** 을 추가합니다. 자세한 프로젝트 소개는 [ABOUT.md](./ABOUT.md) 참조.  
+*This repo forks [the upstream `lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) and adds a third gateway, **iPark Smarthome App**, that fills the gap when the two existing methods don't work in a given complex. See [ABOUT.md](./ABOUT.md) for the full project overview.*
 
 ## 목차 / Contents
 
@@ -23,12 +23,12 @@
 ## 프로젝트 소개 / About
 
 세 가지 연결 방식 중 본인 단지·환경에 맞는 것을 선택해 월패드를 Home Assistant 에 연동합니다. 통합과 모든 문서는 한국어 / 영어를 동시 지원하며, 기존 코드 경로는 그대로 유지된 채 새 옵션이 **추가**된 것이므로 기존 사용자에게 영향이 없습니다.  
-*Three connection methods, pick whichever matches your complex/setup. Integration and all docs are bilingual (Korean first, English second). The new option is **additive** — no existing code path was modified, so prior users see no behavioural change.*
+*Three connection methods, pick whichever matches your complex/setup. Integration and all docs are bilingual (Korean first, English second). The new option is **additive**: no existing code path was modified, so prior users see no behavioural change.*
 
 ## 유지보수 현황 / Maintenance status
 
-원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 의 작업이 v1.1.9 이후로 중단되어, 본 포크 [`dlxmax/ha-bestin-fork`](https://github.com/dlxmax/ha-bestin-fork) 가 유지보수를 이어 받았습니다. 본 포크의 직전 릴리스 v1.2.0 은 lunDreame v1.1.9 에서 발견된 버그를 정리한 버전입니다 (Python 3.14 호환, 게이트웨이 모드 감지 타임아웃, 무한 리로드 루프, 0x31 패킷 변형, 온도조절기 파싱 가드 등). 본 **v1.3.0** 에서는 신규 'iPark 스마트홈 앱' 옵션이 추가되었습니다.  
-*Upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) development stopped after v1.1.9. This fork [`dlxmax/ha-bestin-fork`](https://github.com/dlxmax/ha-bestin-fork) has taken over maintenance. Our previous release **v1.2.0** carried bug fixes against lunDreame's v1.1.9 (Python 3.14 compatibility, gateway-mode detection timeout, infinite reload loop, 0x31 packet variants, thermostat parsing guard, etc.). The new **v1.3.0** adds the "iPark Smarthome App" option.*
+원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 의 작업이 v1.1.9 이후로 중단되어, 본 포크 [`dlxmax/ha-bestin-fork`](https://github.com/dlxmax/ha-bestin-fork) 가 유지보수를 이어 받았습니다. 본 포크의 직전 릴리스 v1.2.0 은 lunDreame v1.1.9 에서 발견된 버그를 정리한 버전입니다 (Python 3.14 호환, 게이트웨이 모드 감지 타임아웃, 무한 리로드 루프, 0x31 패킷 변형, 온도조절기 파싱 가드 등). v1.3.0 에서 신규 'iPark 스마트홈 앱' 옵션이 추가되었고, 현재 버전은 **v1.4.16** 입니다. 버전별 변경 내용은 [Releases](https://github.com/dlxmax/ha-bestin-fork/releases) 참조.  
+*Upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) development stopped after v1.1.9. This fork [`dlxmax/ha-bestin-fork`](https://github.com/dlxmax/ha-bestin-fork) has taken over maintenance. Our previous release **v1.2.0** carried bug fixes against lunDreame's v1.1.9 (Python 3.14 compatibility, gateway-mode detection timeout, infinite reload loop, 0x31 packet variants, thermostat parsing guard, etc.). v1.3.0 added the "iPark Smarthome App" option; the current release is **v1.4.16**. See [Releases](https://github.com/dlxmax/ha-bestin-fork/releases) for what changed in each version.*
 
 ## 어떤 방식을 선택해야 하나요? / Which method should I pick?
 
@@ -39,12 +39,12 @@
 | **iPark 스마트홈 앱 / iPark Smarthome App** _(신규 / new)_ | 안드로이드 iPark 스마트홈 앱은 동작하나 RS-485 어댑터 / 클라우드 / 단지 웹사이트가 동작하지 않는 구형 단지.<br>*Older complexes where the Android iPark Smarthome app works but RS-485, cloud, or the apartment website don't.* | [guide/iparkapp.md](./guide/iparkapp.md) |
 
 선택이 어려우시면 **iPark 스마트홈 앱 옵션** 부터 시도해 보세요. 별도 하드웨어 / 토큰 등록이 필요 없어 가장 진입 장벽이 낮습니다.  
-*If unsure, try the **iPark Smarthome App** option first — no hardware, no token registration, lowest barrier to entry.*
+*If unsure, try the **iPark Smarthome App** option first: no hardware, no token registration, lowest barrier to entry.*
 
 ## 추가 배경 / Why this fork exists
 
-기존 두 가지 방식 (RS-485 / 웹사이트 기반 클라우드 연동) 은 본 포크 작성자의 가정에서 동작하지 않았습니다. 월패드는 RS-485 보다 오래된 RS-422 라인을 사용해 어댑터로 신호 해석이 어려웠고, 단지 웹사이트(`http://<단지IP>/`) 의 제어는 응답이 없었습니다. 반면 안드로이드 [iPark 스마트홈 앱](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet) 은 같은 단지 서버에서 정상 동작했습니다. 앱을 리버스 엔지니어링한 결과, 앱은 웹사이트와 동일한 URL 을 호출하지만 두 가지 핵심 차이가 있었습니다 — 정확한 PHP 경로 (`/webapp/data/...`) 와 필수 AJAX 헤더 (`X-Requested-With: XMLHttpRequest`). 본 'iPark 스마트홈 앱' 옵션은 이 두 가지 차이를 정확히 반영해 동일 단지 환경에서 안정적으로 동작합니다.  
-*The two existing methods (RS-485 and the website-based cloud integration) didn't work in this fork's author's home — the wallpad uses the older RS-422 line so off-the-shelf adapters can't read it cleanly, and **the apartment website's controls (`http://<complex-IP>/`) silently dropped every command**. The Android [iPark Smarthome app](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet) however works fine against the same server. Reverse-engineering the app revealed it hits the same server but with two critical differences from the website: the correct PHP path (`/webapp/data/...`) and a mandatory AJAX header (`X-Requested-With: XMLHttpRequest`). The new "iPark Smarthome App" option mirrors both, which makes it work reliably in homes where the website method does not.*
+기존 두 가지 방식 (RS-485 / 웹사이트 기반 클라우드 연동) 은 본 포크 작성자의 가정에서 동작하지 않았습니다. 월패드는 RS-485 보다 오래된 RS-422 라인을 사용해 어댑터로 신호 해석이 어려웠고, 단지 웹사이트(`http://<단지IP>/`) 의 제어는 응답이 없었습니다. 반면 안드로이드 [iPark 스마트홈 앱](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet) 은 같은 단지 서버에서 정상 동작했습니다. 앱을 리버스 엔지니어링한 결과, 앱은 웹사이트와 동일한 URL 을 호출하지만 두 가지 핵심 차이가 있었습니다. 정확한 PHP 경로 (`/webapp/data/...`) 와 필수 AJAX 헤더 (`X-Requested-With: XMLHttpRequest`). 본 'iPark 스마트홈 앱' 옵션은 이 두 가지 차이를 정확히 반영해 동일 단지 환경에서 안정적으로 동작합니다.  
+*The two existing methods (RS-485 and the website-based cloud integration) didn't work in this fork's author's home. The wallpad uses the older RS-422 line so off-the-shelf adapters can't read it cleanly, and **the apartment website's controls (`http://<complex-IP>/`) silently dropped every command**. The Android [iPark Smarthome app](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet) however works fine against the same server. Reverse-engineering the app revealed it hits the same server but with two critical differences from the website: the correct PHP path (`/webapp/data/...`) and a mandatory AJAX header (`X-Requested-With: XMLHttpRequest`). The new "iPark Smarthome App" option mirrors both, which makes it work reliably in homes where the website method does not.*
 
 ## 설치 / Installation
 
@@ -71,7 +71,7 @@
    - 자세한 절차는 [guide/center.md](./guide/center.md) 참조. / *Full instructions in [guide/center.md](./guide/center.md).*
 
    #### 3. iPark 스마트홈 앱 / iPark Smarthome App _(신규 / new)_
-   - 자동 조회된 단지 목록에서 자신의 단지를 선택하고, 안드로이드 앱과 동일한 아이디·비밀번호로 로그인합니다. IP·토큰 입력이 필요 없습니다. / *Pick your complex from the auto-fetched directory, then sign in with the same credentials you use in the Android app — no IP entry, no token copy-paste.*
+   - 자동 조회된 단지 목록에서 자신의 단지를 선택하고, 안드로이드 앱과 동일한 아이디·비밀번호로 로그인합니다. IP·토큰 입력이 필요 없습니다. / *Pick your complex from the auto-fetched directory, then sign in with the same credentials you use in the Android app. No IP entry, no token copy-paste.*
    - 자세한 내용은 [guide/iparkapp.md](./guide/iparkapp.md) 참조. / *See [guide/iparkapp.md](./guide/iparkapp.md) for details.*
 
 4. 설정이 완료된 후, 컴포넌트가 로드되면 생성된 기기를 사용하실 수 있습니다.  
@@ -85,7 +85,7 @@ iPark 스마트홈 앱 / 클라우드 옵션은 별도의 하드웨어가 필요
 - EW11 또는 USB-to-485 컨버터 2개 (게이트웨이 없는 일체형 세대는 1 개로 가능). / *2× EW11 or USB-to-485 converters (1× is enough for gateway-less units).*
 - 라인 확보 및 게이트웨이 타입 구분 (게이트웨이 있는 세대인지, 월패드 뒤쪽 라인에 직접 꼽는지 확인). / *Confirm wiring and gateway type (with-gateway vs. plug into the line behind the wallpad).*
 - 어댑터 설치는 [guide/install.md](./guide/install.md) 참조. / *Adapter setup in [install guide](./guide/install.md).*
-  - 정상 연결 확인 시 시리얼 포트몬을 사용하세요. BESTIN 월패드의 프레임은 `02` 로 시작합니다. [예시](./guide/packet_dump.txt). / *Verify the link with a serial port monitor — BESTIN frames start with `02`. See [sample data](./guide/packet_dump.txt).*
+  - 정상 연결 확인 시 시리얼 포트몬을 사용하세요. BESTIN 월패드의 프레임은 `02` 로 시작합니다. [예시](./guide/packet_dump.txt). / *Verify the link with a serial port monitor. BESTIN frames start with `02`. See [sample data](./guide/packet_dump.txt).*
   - 디밍 세대는 [디밍 예시](./guide/dimming_packet_dump.txt) 참조. / *For dimming-light households, see the [dimming sample](./guide/dimming_packet_dump.txt).*
 
 ## 기능 / Features
@@ -102,10 +102,12 @@ iPark 스마트홈 앱 / 클라우드 옵션은 별도의 하드웨어가 필요
 | 가스 / Gas valve | O | 닫기 전용 (앱 동일) / Close-only (matches the app) |
 | 도어락 / Door lock | O | 상태 표시만 (앱 동일) / Status only (matches the app) |
 | 난방 / Heating | O | 객실 + 추가 비제어 난방 온도 센서 (있는 경우, 정확한 의미는 단지마다 상이) / Per-room + an extra uncontrollable heat-temperature sensor where the wallpad reports more 'rooms' than it has thermostats (exact meaning varies by complex) |
+| 객실별 실내 온도 센서 / Per-room temperature sensors | O | iPark 스마트홈 앱 옵션 한정. 통합 옵션에서 객실마다 HA 온도 센서를 지정하면 표시 온도와 듀티 사이클 제어가 월패드 대신 그 센서를 사용합니다 (앱 경로는 월패드 온도를 정수로 내림). v1.4.16+. / iPark Smarthome App option only. Pick an HA temperature sensor per room in the integration options and the displayed temperature and duty-cycle control use it instead of the wallpad (the app path floors wallpad readings to whole degrees). v1.4.16+. |
 | 외출 모드 / Away mode | O | iPark 스마트홈 앱 옵션 한정 (별도 entity) / iPark Smarthome App option only (separate entity) |
-| 에너지 모니터링 / Energy monitoring | O | 전기 / 가스 / 난방 / 온수 / 수도 — iPark 스마트홈 앱 옵션 한정 / Electric / Gas / Heat / Hot water / Water — iPark Smarthome App option only |
-| 표준 HA 프리셋 (난방) / Standard HA presets (heating) | O | Comfort / Eco / Sleep / Away / Vacation / Frost / Boost — 객실별 / per-room. iPark 스마트홈 앱 옵션에서는 슬로우 듀티 사이클 (시간 비례 제어) 이 함께 적용됩니다 (다른 게이트웨이는 setpoint 만 변경). v1.4.0+. / On the iPark Smarthome App option these also engage a software slow duty cycle (time-proportional control); on other gateways they just change the setpoint. v1.4.0+. |
-| HA 자동화 Blueprints | O | 야간 setback / 휴가 일정 / 외출 자동 감지 — `blueprints/automation/bestin/` 의 3 개 YAML 을 한 번 임포트하면 HA UI 에서 객실·시각·도우미를 채워 사용. v1.4.2+. / Three importable blueprints (night setback, vacation window, away-when-empty) under `blueprints/automation/bestin/`. v1.4.2+. |
+| 에너지 모니터링 / Energy monitoring | O | 전기 / 가스 / 난방 / 온수 / 수도, iPark 스마트홈 앱 옵션 한정. 매시 10분에 갱신, 소수 첫째 자리 표시, 검침값이 없으면 0 대신 '알 수 없음'. / Electric / Gas / Heat / Hot water / Water, iPark Smarthome App option only. Refreshed 10 minutes past each hour, shown to one decimal, Unknown instead of a false 0 when no reading is published. |
+| 표준 HA 프리셋 (난방) / Standard HA presets (heating) | O | Comfort / Eco / Sleep / Away / Vacation / Frost / Boost, 객실별 / per-room. iPark 스마트홈 앱 옵션에서는 슬로우 듀티 사이클 (시간 비례 제어) 이 함께 적용됩니다 (다른 게이트웨이는 setpoint 만 변경). v1.4.0+. / On the iPark Smarthome App option these also engage a software slow duty cycle (time-proportional control); on other gateways they just change the setpoint. v1.4.0+. |
+| HA 자동화 Blueprints | O | 야간 setback / 휴가 일정 / 외출 자동 감지. `blueprints/automation/bestin/` 의 3 개 YAML 을 한 번 임포트하면 HA UI 에서 객실·시각·도우미를 채워 사용. v1.4.2+. / Three importable blueprints (night setback, vacation window, away-when-empty) under `blueprints/automation/bestin/`. v1.4.2+. |
+| 단지 서버 부하 감소·장애 대응 / Server load and outages | O | iPark 스마트홈 앱 옵션 한정. 난방은 켜진 방이 있으면 5분, 모두 꺼지면 30분, 그 외 장치는 60초마다 조회하고, 세대에 없는 장치는 조회 빈도를 줄입니다. 서버 장애 시 5분마다 재시도하고 HA 알림을 띄웁니다. v1.4.12+. / iPark Smarthome App option only. Thermostats are polled every 5 min while any room is on and every 30 min while all are off, other devices every 60 s, and devices the home doesn't have are backed off. During a server outage it retries every 5 min and raises an HA notification. v1.4.12+. |
 
 - 추가 기기·속성이 필요하면 이슈 탭에 등록해 주세요. / *Open an issue if your household has devices not in the table above.*
 - IPARK 스마트홈 클라우드 연동은 1.2.0 부터 지원됩니다. / *IPARK Smart Home cloud integration is supported from v1.2.0 onward.*
@@ -116,11 +118,11 @@ iPark 스마트홈 앱 / 클라우드 옵션은 별도의 하드웨어가 필요
 문제가 있나요? [Issues](https://github.com/dlxmax/ha-bestin-fork/issues) 탭에 작성해 주세요.  
 *Found a bug? Please file an [issue](https://github.com/dlxmax/ha-bestin-fork/issues).*
 
-- 테스트 중이며 다양한 환경에서의 검증이 필요합니다. / *Still under testing — coverage from more household configurations is welcome.*
+- 테스트 중이며 다양한 환경에서의 검증이 필요합니다. / *Still under testing; coverage from more household configurations is welcome.*
 - 월패드 버전 3.0 은 미테스트입니다. / *Wallpad 3.0 is not yet tested.*
 - 시리얼 통신은 미테스트입니다. / *Serial communication has not been tested.*
 - 좋은 아이디어가 있으면 [Pull requests](https://github.com/dlxmax/ha-bestin-fork/pulls) 환영합니다. / *Got a better idea? Open a [pull request](https://github.com/dlxmax/ha-bestin-fork/pulls).*
-- 본 통합 사용으로 발생하는 문제에 대해 책임지지 않습니다. / *Use at your own risk — no warranty is provided.*
+- 본 통합 사용으로 발생하는 문제에 대해 책임지지 않습니다. / *Use at your own risk; no warranty is provided.*
 
 ## 디버깅 / Debugging
 
