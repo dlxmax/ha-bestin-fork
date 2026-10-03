@@ -478,7 +478,9 @@ class BestinHub:
             )
             await self.api.start()
         except Exception as ex:
-            self.api = None
+            # 생성자가 이미 세션을 열었으므로 버리기 전에 닫습니다.
+            # The constructor already opened a session, so close it before dropping the API.
+            await self._async_discard_api()
             raise RuntimeError(
                 f"Failed to initialize Bestin hub. Host: {self.hub_id}, Version: {self.cntr_version}. "
                 f"Error: {str(ex)}"
@@ -526,4 +528,4 @@ class BestinHub:
         try:
             await api.stop()
         except Exception as ex:  # noqa: BLE001 — cleanup must not mask the cause
-            LOGGER.debug("iParkApp cleanup after failed start: %s", ex)
+            LOGGER.debug("API cleanup after failed start: %s", ex)

@@ -375,11 +375,15 @@ class BestinCenterAPI(CenterAPIv2):
         ]
 
     async def stop(self):
-        """Stop all running tasks and reset timers."""
+        """Stop all running tasks and timers and close the HTTP session."""
         if self.tasks:
             for task in self.tasks:
                 task()
             self.tasks = []
+        # 세션을 닫지 않으면 다시 불러올 때마다 'Unclosed client session' 이 쌓입니다.
+        # Close the session, or every reload leaves one open ("Unclosed client session").
+        if not self.session.closed:
+            await self.session.close()
 
     @callback
     async def enqueue_command(self, device_id: str, value: Any, **kwargs: dict | None):
