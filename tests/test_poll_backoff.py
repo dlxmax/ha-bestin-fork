@@ -191,6 +191,95 @@ check("intermittent failures never back off a known-good class",
       "gas" in api4._class_backed_off, False)
 check("  ...still polled every cycle", len(api4.requests), 40)
 
+# --- v1.4.15: a missing room that answers "fail" is backed off too ----------
+LIGHT = ipc.DEVICE_CLASSES["light"]
+
+
+def poll_room(api, cls, room, n):
+    """Simulate n poll cycles for one room, honouring the per-room gate."""
+    polled = 0
+    for _ in range(n):
+        api._poll_cycle += 1
+        if not api._room_exists.get((cls.key, room), True):
+            continue
+        if api._poll_cycle < api._class_next_probe.get((cls.key, room), 0):
+            continue
+        polled += 1
+        asyncio.run(api._fetch_class(cls, room=room))
+    return polled
+
+
+api5 = make_api([])
+polled = poll_room(api5, LIGHT, 3, 10)
+check("missing room backs off after threshold", polled, ip.ABSENT_CLASS_THRESHOLD)
+check("  ...keyed per room", (LIGHT.key, 3) in api5._class_backed_off, True)
+check("  ...class itself untouched", LIGHT.key in api5._class_backed_off, False)
+check("  ...room re-probes itself",
+      poll_room(api5, LIGHT, 3, ip.ABSENT_CLASS_RETRY_CYCLES + 2) >= 1, True)
+
+api6 = make_api([OK_BODY] + [FAIL_BODY] * 50)
+poll_room(api6, LIGHT, 1, 20)
+check("a room that has worked is never backed off",
+      (LIGHT.key, 1) in api6._class_backed_off, False)
+
+
+# --- v1.4.15: thermostats are polled every THERMOSTAT_POLL_SECONDS ----------
+class _Duty:
+    def __init__(self, active):
+        self.active = active
+
+    def any_active(self):
+        return self.active
+
+
+class _Dev:
+    def __init__(self, state):
+        self.info = types.SimpleNamespace(state=state)
+
+
+def thermo_api(duty_active=False, room_mode="off"):
+    api = make_api([])
+    api._temper_next_poll = 0.0
+    api.duty_cycle = _Duty(duty_active)
+    api.devices = {"bestin_temper_1": _Dev({"raw_mode": room_mode})}
+    api.calls = []
+
+    async def _fake_fetch(cls, room=None):
+        api.calls.append(cls.key)
+
+    api._fetch_class = _fake_fetch
+    return api
+
+
+clock = [1000.0]
+ip.time.monotonic = lambda: clock[0]
+ROOMS = len(ipc.ROOM_PROBE_RANGE)
+
+
+def run_polls(api, n, between=None):
+    for i in range(n):                   # polls 60 s apart
+        asyncio.run(api._poll_all())
+        if between:
+            between(i)
+        clock[0] += 60
+    return api.calls.count("temper") // ROOMS
+
+
+api7 = thermo_api(room_mode="on")
+check("heating: thermostats polled twice in 9 minutes", run_polls(api7, 10), 2)
+check("other classes polled every time", api7.calls.count("ventil"), 10)
+
+api8 = thermo_api()
+check("all off: thermostats polled 3 times in 69 minutes", run_polls(api8, 70), 3)
+
+api9 = thermo_api(duty_active=True)
+check("duty-cycled room counts as heating", run_polls(api9, 10), 2)
+
+api10 = thermo_api()
+check("HA command wakes the 5 minute poll",
+      run_polls(api10, 10, lambda i: i == 0 and api10._wake_thermostat_poll()), 2)
+
+
 print()
 print("FAILURES:", failures if failures else "none")
 sys.exit(1 if failures else 0)

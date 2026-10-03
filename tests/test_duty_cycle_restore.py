@@ -157,6 +157,39 @@ async def stop_releases():
 
 check("stop() hands rooms back", asyncio.run(stop_releases()), [(3, "on/19")])
 
+# --- v1.4.15: the tick loop sleeps while no room is duty-cycled -------------
+class _Hass:
+    def __init__(self, loop):
+        self.loop = loop
+
+
+async def idle_loop():
+    c, sent = make()
+    ticks = []
+    orig = c._tick
+
+    async def counting_tick():
+        ticks.append(1)
+        await orig()
+
+    c._tick = counting_tick
+    dc.TICK_INTERVAL_S = 0.05
+    c.upsert_current_temp(1, 20.0)       # a room on 'none' preset
+    c.start(_Hass(asyncio.get_running_loop()))
+    await asyncio.sleep(0.5)
+    idle = len(ticks)
+    c.set_preset(1, "comfort")           # wakes the loop, ticks resume
+    await asyncio.sleep(0.5)
+    active = len(ticks) - idle
+    await c.stop()
+    return idle, active, sent
+
+
+idle, active, sent = asyncio.run(idle_loop())
+check("idle loop ticks once then sleeps", idle, 1)
+check("  ...preset change resumes ticking", active > 3, True)
+check("  ...and sends the ON pulse", sent[:1], [(1, "on/25")])
+
 print()
 print("FAILURES:", failures if failures else "none")
 sys.exit(1 if failures else 0)

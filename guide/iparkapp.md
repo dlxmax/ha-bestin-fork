@@ -93,6 +93,8 @@ i-parklife.com 디렉터리에서 60여 개 단지가 자동으로 조회됩니�
    *Loads `index.php` once to prime the wallpad's IPC channel.*
 4. 모든 장치 클래스를 폴링합니다 (`getHomeDevice.php`, 난방은 `getHomeDevice_heat.php`).  
    *Polls every device class via `getHomeDevice.php` (heat uses the separate `getHomeDevice_heat.php`).*
+   폴링 주기 (v1.4.15): 조명·환기·외출·도어락은 60초 (옵션에서 변경), 난방은 켜진 방이 있으면 5분 (모두 꺼져 있으면 30분), 에너지는 HA 시작 시 한 번 그리고 매시 10분. 세대에 없는 장치나 객실은 연속 5회 실패하면 약 1시간에 한 번만 다시 묻습니다.  
+   *Poll schedule (v1.4.15): lights, ventilation, away mode and door lock every 60 s (changeable in the options), thermostats every 5 min while any room is on (every 30 min while all are off), energy once at HA start and then at 10 minutes past each hour. A device or room the home doesn't have is asked about only about once an hour after 5 failures in a row.*
 5. 모든 요청에 `X-Requested-With: XMLHttpRequest` 헤더를 포함합니다 — 이 헤더가 없으면 서버는 즉시 `result="timeout"` 더미 응답을 반환합니다.  
    *Sends `X-Requested-With: XMLHttpRequest` on every request — without it the server short-circuits with a stub `result="timeout"`.*
 

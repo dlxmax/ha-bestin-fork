@@ -74,12 +74,38 @@ RESULT_ERRORS_RETRYABLE = ("timeout", "connect_fail", "send_fail", "recv_fail")
 RESULT_ERRORS_FATAL = ("deny", "fail")
 
 
-# 기본 폴링 간격 — Default poll interval (seconds). 30s matches the existing
-# integration default. Override via the integration's options flow.
-DEFAULT_POLL_INTERVAL = 30
+# 기본 폴링 간격(초): 조명·환기·외출·도어락. 옵션에서 바꿀 수 있습니다.
+# v1.4.15 에서 30초에서 60초로 늘렸습니다. HA 에서 한 조작은 바로 반영되고,
+# 폴링은 월패드에서 직접 바꾼 상태를 따라잡는 용도일 뿐입니다.
+# Default device poll interval (seconds) for lights, ventilation, away mode
+# and the door lock; override in the integration options. Raised from 30 to
+# 60 in v1.4.15: changes made from HA show at once, so the poll only has to
+# catch changes made at the wallpad.
+DEFAULT_POLL_INTERVAL = 60
+
+# 난방(온도조절기) 폴링 간격(초). 실내 온도는 천천히 변하고, 듀티 사이클
+# 제어 주기도 10~30분이라 5분이면 충분합니다.
+# Thermostat poll interval (seconds). Room temperatures move slowly and the
+# duty-cycle controller works in 10 to 30 minute cycles, so 5 minutes is
+# plenty.
+THERMOSTAT_POLL_SECONDS = 300
+
+# 모든 방의 난방이 꺼져 있을 때의 폴링 간격(초). 여름처럼 난방수가 공급되지
+# 않는 철에는 대부분 이 간격으로 돕니다. HA 에서 난방을 켜면 바로 5분 간격으로
+# 돌아가고, 월패드에서 켠 경우에는 다음 폴링(최대 30분 뒤)에 알아챕니다.
+# Thermostat poll interval (seconds) while every room is off, which is most
+# of the year when the building isn't supplying heating water. Turning a room
+# on from HA switches straight back to 5 minutes; a room turned on at the
+# wallpad is noticed on the next poll, at most 30 minutes later.
+THERMOSTAT_IDLE_POLL_SECONDS = 1800
 
 # 세션 갱신 간격 — Session refresh interval (minutes). Matches v1 cadence.
 DEFAULT_SESSION_REFRESH_MINUTES = 15
+
+# 에너지 폴링 시각: 매시 이 분에 한 번. 단지 서버가 매시 7분쯤 값을 올립니다.
+# Energy readings are fetched once an hour at this minute past the hour. The
+# complex server posts new values about 7 minutes past.
+ENERGY_POLL_MINUTE = 10
 
 # 객실 탐색 범위 — Probe range when discovering room-scoped devices.
 ROOM_PROBE_RANGE = range(1, 7)

@@ -169,6 +169,21 @@ TOTAL_TYPES = {
     "energy:avghwater", "energy:avgheat",
 }
 
+# 표시 소수 자릿수: iparkapp 에너지 값은 소수 첫째 자리까지만 옵니다
+# (예: "1.2", "21.4"). 지정하지 않으면 HA 가 단위별 기본값을 골라 수도·가스는
+# 1.20 처럼 항상 0 인 둘째 자리를 붙이고, 전기는 21.4 를 21 로 잘라
+# 보여줬습니다.
+#
+# Display precision. The iparkapp energy payload carries one decimal only
+# (e.g. "1.2", "21.4"). Left unset, HA picked per-unit defaults: water/gas
+# showed a hundredths digit that was always 0 (1.20), and electricity was cut
+# to whole kWh (21.4 → 21).
+SUGGESTED_PRECISION = {
+    f"energy:{scope}{kind}": 1
+    for scope in ("mine", "avg")
+    for kind in ("elec", "gas", "water", "hwater", "heat")
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -260,3 +275,8 @@ class BestinSensor(BestinDevice, SensorEntity):
         if device_type in MEASUREMENT_TYPES:
             return "measurement"
         return None
+
+    @property
+    def suggested_display_precision(self):
+        """Number of decimals HA should show by default."""
+        return SUGGESTED_PRECISION.get(self._device_info.device_type)

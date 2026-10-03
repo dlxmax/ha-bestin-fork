@@ -184,6 +184,9 @@ class DutyCycleController:
         self._on_state_change = on_state_change
         self.rooms: dict[int, RoomDutyCycleState] = {}
         self._stop_event: asyncio.Event = asyncio.Event()
+        # 틱 루프 깨우기: 프리셋 변경과 정지 시 set. Set on a preset change
+        # and on stop, so an idle loop wakes at once.
+        self._wake: asyncio.Event = asyncio.Event()
         self._task: asyncio.Task | None = None
 
     # ----- lifecycle --------------------------------------------------------
@@ -203,6 +206,7 @@ class DutyCycleController:
         """틱 루프 정지 후 월패드에 제어권 반환 — Stop the tick loop, then hand
         every duty-cycled room back to the wallpad's own thermostat logic."""
         self._stop_event.set()
+        self._wake.set()
         if self._task is not None:
             try:
                 await asyncio.wait_for(self._task, timeout=5)
@@ -312,6 +316,7 @@ class DutyCycleController:
         # rather than waiting out the current cycle.
         st.cycle_started_at = datetime.now()
         st.last_sent_phase = None
+        self._wake.set()
         if self._on_state_change is not None:
             self._on_state_change(room, st)
         LOGGER.info(
@@ -390,6 +395,14 @@ class DutyCycleController:
     def get_room(self, room: int) -> RoomDutyCycleState | None:
         return self.rooms.get(self._norm_room(room))
 
+    def any_active(self) -> bool:
+        """듀티 사이클로 제어 중인 방이 하나라도 있는가 / Is any room on a
+        duty-cycle preset?"""
+        return any(
+            PRESET_PROFILES[st.preset].cycle_period_s > 0
+            for st in self.rooms.values()
+        )
+
     def is_active_for(self, room: int) -> bool:
         """이 객실이 듀티 사이클로 제어 중인가? — Does the duty-cycle controller currently drive this room?"""
         st = self.rooms.get(self._norm_room(room))
@@ -408,15 +421,22 @@ class DutyCycleController:
         return st
 
     async def _run(self) -> None:
+        # 듀티 사이클 프리셋이 걸린 방이 없으면 틱이 할 일이 없으므로, 프리셋이
+        # 바뀌거나 정지될 때까지 잠듭니다. 틱 자체는 서버에 요청하지 않고
+        # 위상 전환 시각만 재며, 명령은 ON/OFF 가 바뀔 때만 보냅니다.
+        # With no room on a duty-cycle preset the tick has nothing to do, so
+        # sleep until a preset changes or the controller stops. The tick sends
+        # no requests itself; it only times phase edges and sends a command
+        # when a room switches between ON and OFF.
         while not self._stop_event.is_set():
+            self._wake.clear()
             try:
                 await self._tick()
             except Exception as ex:  # noqa: BLE001
                 LOGGER.exception("duty-cycle tick error: %s", ex)
+            timeout = TICK_INTERVAL_S if self.any_active() else None
             try:
-                await asyncio.wait_for(
-                    self._stop_event.wait(), timeout=TICK_INTERVAL_S
-                )
+                await asyncio.wait_for(self._wake.wait(), timeout=timeout)
             except asyncio.TimeoutError:
                 pass
 

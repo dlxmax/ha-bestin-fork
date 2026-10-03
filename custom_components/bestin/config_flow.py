@@ -46,6 +46,7 @@ from .iparkapp_const import (
     CONF_IPARKAPP_PASSWORD,
     CONF_IPARKAPP_SITE,
     CONF_IPARKAPP_USERNAME,
+    DEFAULT_POLL_INTERVAL,
     LOGIN_DATA_PATH,
     LOGIN_LANDING_PATH,
     USER_AGENT,
@@ -496,7 +497,7 @@ class OptionsFlowHandler(OptionsFlow):
                     vol.Required(
                         CONF_SCAN_INTERVAL,
                         default=self.entry.options.get(
-                            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+                            CONF_SCAN_INTERVAL, DEFAULT_POLL_INTERVAL
                         ),
                     ): cv.positive_int,
                 }

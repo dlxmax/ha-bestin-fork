@@ -25,6 +25,7 @@ import base64
 import hashlib
 import json
 import re
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from functools import lru_cache
@@ -42,11 +43,13 @@ from homeassistant.components.fan import ATTR_PRESET_MODE
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_STATE, CONF_SCAN_INTERVAL, WIND_SPEED
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_time_change,
+    async_track_time_interval,
+)
 
 from .const import (
     BRAND_PREFIX,
-    DEFAULT_SCAN_INTERVAL,
     DEVICE_PLATFORM_MAP,
     ENERGY_FRIENDLY_LABELS,
     LOGGER,
@@ -67,10 +70,12 @@ from .iparkapp_const import (
     CONF_IPARKAPP_PASSWORD,
     CONF_IPARKAPP_SITE,
     CONF_IPARKAPP_USERNAME,
+    DEFAULT_POLL_INTERVAL,
     DEFAULT_SESSION_REFRESH_MINUTES,
     DEVICE_CLASSES,
     ENERGY_CATEGORIES,
     ENERGY_PATH_TEMPLATE,
+    ENERGY_POLL_MINUTE,
     INDEX_PATH,
     LOGIN_DATA_PATH,
     LOGIN_LANDING_PATH,
@@ -78,6 +83,8 @@ from .iparkapp_const import (
     RESULT_ERRORS_FATAL,
     RESULT_OK,
     ROOM_PROBE_RANGE,
+    THERMOSTAT_IDLE_POLL_SECONDS,
+    THERMOSTAT_POLL_SECONDS,
     USER_AGENT,
     DeviceClass,
     make_unit_id,
@@ -175,13 +182,13 @@ def latest_energy_reading(data: list[Any]) -> float | None:
 # Consecutive fatal replies before a never-OK device class is backed off.
 ABSENT_CLASS_THRESHOLD = 5
 
-# 백오프 중에도 이 주기마다 한 번씩은 다시 시도합니다 (30초 폴링 기준 약 1시간).
+# 백오프 중에도 이 주기마다 한 번씩은 다시 시도합니다 (60초 폴링 기준 약 1시간).
 # 영구히 끄지 않는 이유는 __init__ 의 ``_class_next_probe`` 주석 참고.
-# Re-probe a backed-off class this often (~1 h at the 30 s poll interval).
-# Cuts a missing device from ~2,880 requests/day to ~24 while still healing
+# Re-probe a backed-off class this often (~1 h at the 60 s poll interval).
+# Cuts a missing device from ~1,440 requests/day to ~24 while still healing
 # on its own — see the ``_class_next_probe`` note in __init__ for why this is
 # a backoff rather than an off-switch.
-ABSENT_CLASS_RETRY_CYCLES = 120
+ABSENT_CLASS_RETRY_CYCLES = 60
 
 # 세션 갱신이 이만큼 연속 실패하면 HA 알림을 띄웁니다.
 # Consecutive session-refresh failures before raising a user-facing
@@ -292,6 +299,19 @@ class BestinIparkAppAPI:
         self._class_ever_ok: set[str] = set()
         self._class_next_probe: dict[str, int] = {}
         self._class_backed_off: set[str] = set()
+        # v1.4.15: 위 네 가지는 객실 단위 장치에도 쓰입니다. 키는 클래스 단위면
+        # ``cls.key``, 객실 단위면 ``(cls.key, room)`` 입니다. 객실이 없을 때
+        # 월패드가 빈 응답 대신 ``fail`` 을 돌려주면 예전에는 그 객실을 매 폴링
+        # 영원히 다시 물었습니다.
+        # v1.4.15: the four structures above also cover room-scoped devices,
+        # keyed by ``cls.key`` for a whole class or ``(cls.key, room)`` for one
+        # room. A missing room that answers ``fail`` rather than an empty reply
+        # used to be asked about again on every poll, forever.
+
+        # 난방 다음 폴링 시각 (time.monotonic 기준). 0 이면 첫 폴링에 바로 묻습니다.
+        # When the thermostats are next due (time.monotonic). 0 means the first
+        # poll asks straight away.
+        self._temper_next_poll: float = 0.0
 
         # 세션 갱신 연속 실패 횟수 — Consecutive session-refresh failures.
         # 첫 실패는 흔한 일시적 끊김이므로 알리지 않고, 연속으로 실패할 때만
@@ -312,13 +332,20 @@ class BestinIparkAppAPI:
         await self._prime_session()
 
         poll_interval = timedelta(
-            seconds=self.entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+            seconds=self.entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_POLL_INTERVAL)
         )
         refresh_interval = timedelta(minutes=DEFAULT_SESSION_REFRESH_MINUTES)
 
         self.hass.create_task(self._poll_all())
+        self.hass.create_task(self._poll_energy())
         self.tasks = [
             async_track_time_interval(self.hass, self._scheduled_poll, poll_interval),
+            async_track_time_change(
+                self.hass,
+                self._scheduled_energy_poll,
+                minute=ENERGY_POLL_MINUTE,
+                second=0,
+            ),
             async_track_time_interval(
                 self.hass, self._scheduled_refresh, refresh_interval
             ),
@@ -352,6 +379,13 @@ class BestinIparkAppAPI:
             await self._poll_all()
         except Exception as ex:  # noqa: BLE001 — log everything so HA shows it
             LOGGER.exception("폴링 실패 — Polling failed: %s", ex)
+
+    @callback
+    async def _scheduled_energy_poll(self, now: datetime) -> None:
+        try:
+            await self._poll_energy()
+        except Exception as ex:  # noqa: BLE001
+            LOGGER.exception("에너지 폴링 실패 / Energy polling failed: %s", ex)
 
     @callback
     async def _scheduled_refresh(self, now: datetime) -> None:
@@ -701,13 +735,13 @@ class BestinIparkAppAPI:
         """HA 재시작 후 객실 듀티 사이클 복원 — Restore a room's duty cycle.
 
         ``climate.py`` 가 RestoreEntity 로 읽어온 마지막 상태를 넘겨 호출합니다.
-        컨트롤러 상태를 되살린 뒤, 다음 폴링(최대 30 s)을 기다리지 않고 엔티티
+        컨트롤러 상태를 되살린 뒤, 다음 폴링을 기다리지 않고 엔티티
         속성에 즉시 반영해 재시작 직후에도 UI 가 올바른 프리셋을 보여줍니다.
 
         Called by ``climate.py`` with the last state RestoreEntity recovered.
         Revives the controller state, then pushes it into the entity right away
         so the UI shows the correct preset immediately instead of reverting to
-        'none' until the next poll (up to 30 s later).
+        'none' until the next poll.
 
         게이트웨이별 진입점입니다 — center.py / controller.py 에는 듀티 사이클
         컨트롤러가 없으므로 이 메서드도 없습니다. climate.py 는 존재 여부를
@@ -753,27 +787,77 @@ class BestinIparkAppAPI:
         """모든 장치 클래스를 동시에 갱신합니다 — Poll every class concurrently."""
         coros: list[Any] = []
         self._poll_cycle += 1
+        now = time.monotonic()
+        # 난방은 켜진 방이 있으면 5분, 모두 꺼져 있으면 30분마다 묻습니다.
+        # Thermostats are asked every 5 minutes while any room is heating and
+        # every 30 minutes while all are off.
+        temper_due = now >= self._temper_next_poll
+        if temper_due:
+            self._temper_next_poll = now + THERMOSTAT_POLL_SECONDS
         for cls in DEVICE_CLASSES.values():
+            if cls.key == "temper" and not temper_due:
+                continue
             # 백오프 중인 클래스는 재시도 시점까지 건너뜁니다 — skip a backed-off
             # class until its next probe cycle comes round.
             if self._poll_cycle < self._class_next_probe.get(cls.key, 0):
                 continue
-            if cls.room_scoped:
-                for n in ROOM_PROBE_RANGE:
-                    if self._room_exists.get((cls.key, n), True):
-                        coros.append(self._fetch_class(cls, room=n))
-            elif cls.key == "temper":
+            if cls.room_scoped or cls.key == "temper":
                 # 난방은 객실별 unit_num 으로 처리 — Heat is per-room via unit_num.
                 for n in ROOM_PROBE_RANGE:
-                    if self._room_exists.get((cls.key, n), True):
-                        coros.append(self._fetch_class(cls, room=n))
+                    if not self._room_exists.get((cls.key, n), True):
+                        continue
+                    if self._poll_cycle < self._class_next_probe.get((cls.key, n), 0):
+                        continue
+                    coros.append(self._fetch_class(cls, room=n))
             else:
                 coros.append(self._fetch_class(cls))
 
-        for kind in ENERGY_CATEGORIES:
-            coros.append(self._fetch_energy(kind))
-
         await asyncio.gather(*coros, return_exceptions=True)
+        if temper_due and not self._heating_active():
+            self._temper_next_poll = now + THERMOSTAT_IDLE_POLL_SECONDS
+
+    def _heating_active(self) -> bool:
+        """난방 중인 방이 있는지 / Is any room heating or duty-cycled?
+
+        방금 받은 폴링 응답의 원래 모드(raw_mode)로 판단합니다. 듀티 사이클
+        프리셋이 걸린 방은 OFF 구간에도 난방 중으로 칩니다.
+
+        Judged from the raw mode of the latest poll reply. A room on a
+        duty-cycle preset counts as heating even during its off phase.
+        """
+        if self.duty_cycle.any_active():
+            return True
+        for device_id, device in self.devices.items():
+            state = device.info.state
+            if "_temper_" in device_id and isinstance(state, dict):
+                if state.get("raw_mode") in ("on", "heat"):
+                    return True
+        return False
+
+    def _wake_thermostat_poll(self) -> None:
+        """HA 에서 난방을 조작하면 5분 간격으로 복귀 / Back to the 5 minute
+        thermostat poll after a thermostat command from HA."""
+        self._temper_next_poll = min(
+            self._temper_next_poll, time.monotonic() + THERMOSTAT_POLL_SECONDS
+        )
+
+    async def _poll_energy(self) -> None:
+        """에너지 카테고리 전체를 갱신합니다 / Refresh every energy category.
+
+        장치 폴링과 분리되어 시작 시 한 번, 이후 매시 10분에만 돕니다.
+        단지 서버는 검침값을 매시 7분쯤 한 번 올리므로, 30초마다 묻던 예전
+        방식은 하루 약 14,400건의 요청 거의 전부가 같은 값을 다시 받아왔습니다.
+
+        Runs once at start and then at ENERGY_POLL_MINUTE past each hour,
+        separate from the device poll. The complex server posts new
+        readings about 7 minutes past the hour, so polling them every 30 s
+        sent about 14,400 requests a day that nearly all returned the same
+        numbers.
+        """
+        await asyncio.gather(
+            *(self._fetch_energy(kind) for kind in ENERGY_CATEGORIES),
+            return_exceptions=True,
+        )
 
     async def _fetch_class(self, cls: DeviceClass, room: int | None = None) -> None:
         """단일 장치 클래스의 상태를 가져옵니다 — Fetch one device class."""
@@ -795,34 +879,39 @@ class BestinIparkAppAPI:
             referer_path=REFERER_PAGES.get(cls.key, "/webapp/index.php"),
         )
         result, root = self._parse_xml_result(body)
+        # 백오프 상태의 키 / Key for the backoff bookkeeping; see __init__.
+        probe_key: str | tuple[str, int] = (
+            cls.key if room is None else (cls.key, room)
+        )
 
         if result != RESULT_OK:
             if room is not None and result is None:
                 # 응답이 비어 있다면 해당 객실에는 장치가 없다고 판단합니다.
                 # Empty response → assume the room doesn't exist; stop polling it.
                 self._room_exists[(cls.key, room)] = False
-            elif room is None and result in RESULT_ERRORS_FATAL:
+            elif result in RESULT_ERRORS_FATAL:
                 # 폴링 간격을 늘립니다 — back off; see the note in __init__.
-                self._class_fatal_streak[cls.key] = (
-                    self._class_fatal_streak.get(cls.key, 0) + 1
+                key = probe_key
+                self._class_fatal_streak[key] = (
+                    self._class_fatal_streak.get(key, 0) + 1
                 )
                 if (
-                    cls.key not in self._class_ever_ok
-                    and self._class_fatal_streak[cls.key] >= ABSENT_CLASS_THRESHOLD
+                    key not in self._class_ever_ok
+                    and self._class_fatal_streak[key] >= ABSENT_CLASS_THRESHOLD
                 ):
-                    self._class_next_probe[cls.key] = (
+                    self._class_next_probe[key] = (
                         self._poll_cycle + ABSENT_CLASS_RETRY_CYCLES
                     )
                     # 첫 판정만 INFO — announce once, then keep the hourly
                     # re-probes quiet.
-                    first_time = cls.key not in self._class_backed_off
-                    self._class_backed_off.add(cls.key)
+                    first_time = key not in self._class_backed_off
+                    self._class_backed_off.add(key)
                     (LOGGER.info if first_time else LOGGER.debug)(
-                        "%s 폴링 간격 확대 — no '%s' device found "
+                        "%s 폴링 간격 확대: no '%s' device found (room=%s) "
                         "(%d consecutive '%s' replies, never once OK); "
                         "re-probing every %d polls instead of every poll",
-                        cls.key, cls.key,
-                        self._class_fatal_streak[cls.key], result,
+                        cls.key, cls.key, room,
+                        self._class_fatal_streak[key], result,
                         ABSENT_CLASS_RETRY_CYCLES,
                     )
             LOGGER.debug(
@@ -834,15 +923,15 @@ class BestinIparkAppAPI:
         # 한 번이라도 성공하면 백오프를 완전히 해제합니다 — a single success
         # cancels the backoff outright, so a device that comes back (or was
         # merely unlucky on startup) resumes full-rate polling immediately.
-        if cls.key in self._class_backed_off:
+        if probe_key in self._class_backed_off:
             LOGGER.info(
-                "%s 폴링 정상화 — '%s' answered OK; resuming normal polling",
-                cls.key, cls.key,
+                "%s 폴링 정상화: '%s' answered OK (room=%s); resuming normal polling",
+                cls.key, cls.key, room,
             )
-            self._class_backed_off.discard(cls.key)
-        self._class_ever_ok.add(cls.key)
-        self._class_fatal_streak.pop(cls.key, None)
-        self._class_next_probe.pop(cls.key, None)
+            self._class_backed_off.discard(probe_key)
+        self._class_ever_ok.add(probe_key)
+        self._class_fatal_streak.pop(probe_key, None)
+        self._class_next_probe.pop(probe_key, None)
 
         # 객실 디바이스가 존재함을 표시 — Mark this room as live.
         if room is not None:
@@ -1173,6 +1262,7 @@ class BestinIparkAppAPI:
         # 온도조절기는 표준 HA preset_mode 와 setpoint 양쪽을 수용합니다.
         # Thermostat: accept both standard HA preset_mode and setpoint changes.
         if device_type == "temper":
+            self._wake_thermostat_poll()
             preset = _extract_preset_mode(kwargs)
             if preset is not None:
                 profile = self.duty_cycle.set_preset(room_id, preset)
