@@ -627,8 +627,15 @@ class BestinIparkAppAPI:
             # v1.4.18 까지는 이 경우가 잡히지 않아 로그 없이 사라졌습니다.
             # A total timeout raises TimeoutError, not ClientError. Up to
             # v1.4.18 it escaped here and vanished without a log line.
+            # 경로만으로는 어느 장치인지 알 수 없어 요청 값도 함께 남깁니다.
+            # The path alone does not say which device failed, so the
+            # request values are logged too.
+            detail = "".join(f" {key}={val}" for key, val in params.items())
             (LOGGER.debug if quiet else LOGGER.warning)(
-                "요청 실패 — Request failed (%s): %s", path, str(ex) or type(ex).__name__
+                "요청 실패 — Request failed (%s%s): %s",
+                path,
+                detail,
+                str(ex) or type(ex).__name__,
             )
             return None
 

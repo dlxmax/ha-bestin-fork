@@ -417,6 +417,23 @@ check("  ...a device that has answered before still warns",
 ip.LOGGER = real_logger
 
 
+# --- v1.4.19: the failure warning says which device failed -----------------
+class _Lines:
+    def __init__(self):
+        self.lines = []
+
+    def __getattr__(self, level):
+        return lambda msg, *a, **k: self.lines.append(msg % a)
+
+
+real_logger, ip.LOGGER = ip.LOGGER, _Lines()
+asyncio.run(_fetch_timed_out(ever_ok=True))
+check("failure warning names the device",
+      any("req_name=" + ipc.DEVICE_CLASSES["gas"].req_name in line
+          for line in ip.LOGGER.lines), True)
+ip.LOGGER = real_logger
+
+
 # --- v1.4.19: devices found before the platforms load still get entities ---
 api13 = ip.BestinIparkAppAPI.__new__(ip.BestinIparkAppAPI)
 api13.devices = {
