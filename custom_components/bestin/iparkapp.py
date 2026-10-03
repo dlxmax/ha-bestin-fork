@@ -596,8 +596,17 @@ class BestinIparkAppAPI:
         params: dict[str, str | int],
         *,
         referer_path: str = "/webapp/index.php",
+        quiet: bool = False,
     ) -> str | None:
-        """공통 GET 요청 — Authenticated GET with required AJAX headers."""
+        """공통 GET 요청 — Authenticated GET with required AJAX headers.
+
+        ``quiet`` 이면 실패를 DEBUG 로만 남깁니다. 한 번도 응답한 적 없는
+        장치(이 집의 가스 등)가 매시 재시도 때마다 경고를 남기지 않게 합니다.
+
+        With ``quiet`` a failure is logged at DEBUG only, so a device that has
+        never answered (gas on some installs) does not leave a warning on
+        every hourly re-probe.
+        """
         url = f"http://{self.host}{path}"
         headers = {
             "User-Agent": USER_AGENT,
@@ -618,7 +627,7 @@ class BestinIparkAppAPI:
             # v1.4.18 까지는 이 경우가 잡히지 않아 로그 없이 사라졌습니다.
             # A total timeout raises TimeoutError, not ClientError. Up to
             # v1.4.18 it escaped here and vanished without a log line.
-            LOGGER.warning(
+            (LOGGER.debug if quiet else LOGGER.warning)(
                 "요청 실패 — Request failed (%s): %s", path, str(ex) or type(ex).__name__
             )
             return None
@@ -1006,16 +1015,17 @@ class BestinIparkAppAPI:
         if cls.room_scoped and room is not None:
             params["req_dev_num"] = room
 
-        body = await self._request(
-            cls.path,
-            params,
-            referer_path=REFERER_PAGES.get(cls.key, "/webapp/index.php"),
-        )
-        result, root = self._parse_xml_result(body)
         # 백오프 상태의 키 / Key for the backoff bookkeeping; see __init__.
         probe_key: str | tuple[str, int] = (
             cls.key if room is None else (cls.key, room)
         )
+        body = await self._request(
+            cls.path,
+            params,
+            referer_path=REFERER_PAGES.get(cls.key, "/webapp/index.php"),
+            quiet=probe_key not in self._class_ever_ok,
+        )
+        result, root = self._parse_xml_result(body)
 
         if result != RESULT_OK:
             # 빈 응답도 실패로 셉니다. v1.4.16 까지는 빈 응답 한 번에 그 방을

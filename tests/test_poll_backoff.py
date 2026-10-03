@@ -113,7 +113,7 @@ def make_api(bodies):
     api._unit_cnt = {}
     api.requests = []
 
-    async def _request(path, params, *, referer_path="/"):
+    async def _request(path, params, *, referer_path="/", quiet=False):
         api.requests.append(params.get("req_name"))
         return bodies.pop(0) if bodies else FAIL_BODY
 
@@ -384,6 +384,37 @@ async def _timed_out():
 
 ip.aiohttp.ClientError = type("ClientError", (Exception,), {})
 check("timeout returns None instead of raising", asyncio.run(_timed_out()), None)
+
+
+# --- v1.4.19: a device that never answered fails quietly -------------------
+class _Levels:
+    def __init__(self):
+        self.seen = []
+
+    def __getattr__(self, level):
+        return lambda *a, **k: self.seen.append(level)
+
+
+async def _fetch_timed_out(ever_ok):
+    api = make_api([])
+    api.host = "example.invalid"
+    api.session = _TimeoutSession()
+    api._request_slots = asyncio.Semaphore(ip.MAX_CONCURRENT_REQUESTS)
+    api._request = types.MethodType(ip.BestinIparkAppAPI._request, api)
+    if ever_ok:
+        api._class_ever_ok.add("gas")
+    await api._fetch_class(ipc.DEVICE_CLASSES["gas"])
+
+
+real_logger, ip.LOGGER = ip.LOGGER, _Levels()
+asyncio.run(_fetch_timed_out(ever_ok=False))
+check("never-answered device: timeout logged at debug only",
+      "warning" in ip.LOGGER.seen, False)
+ip.LOGGER = _Levels()
+asyncio.run(_fetch_timed_out(ever_ok=True))
+check("  ...a device that has answered before still warns",
+      "warning" in ip.LOGGER.seen, True)
+ip.LOGGER = real_logger
 
 
 # --- v1.4.19: devices found before the platforms load still get entities ---
