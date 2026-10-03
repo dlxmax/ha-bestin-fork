@@ -120,7 +120,24 @@ def _remove_entities_matching(
     return removed
 
 
-def _remove_device_if_empty(hass: HomeAssistant, identifier: tuple[str, str]) -> bool:
+def _get_device(
+    hass: HomeAssistant, entry: ConfigEntry, identifier: tuple[str, str]
+) -> dr.DeviceEntry | None:
+    """이 설정 항목이 가진 디바이스를 식별자로 찾습니다.
+
+    Look up this entry's device by identifier. HA deprecated
+    ``async_get_device`` (identifiers are only unique per config entry now) in
+    favour of ``async_get_device_by_identifier``; older HA only has the former.
+    """
+    dev_reg = dr.async_get(hass)
+    if hasattr(dev_reg, "async_get_device_by_identifier"):
+        return dev_reg.async_get_device_by_identifier(identifier, entry.entry_id)
+    return dev_reg.async_get_device(identifiers={identifier})
+
+
+def _remove_device_if_empty(
+    hass: HomeAssistant, entry: ConfigEntry, identifier: tuple[str, str]
+) -> bool:
     """엔티티가 하나도 남지 않은 디바이스 항목을 제거합니다.
 
     Drop a device registry entry once nothing references it any more. HA does
@@ -129,7 +146,7 @@ def _remove_device_if_empty(hass: HomeAssistant, identifier: tuple[str, str]) ->
     no entities.
     """
     dev_reg = dr.async_get(hass)
-    device = dev_reg.async_get_device(identifiers={identifier})
+    device = _get_device(hass, entry, identifier)
     if device is None:
         return False
     ent_reg = er.async_get(hass)
@@ -162,7 +179,7 @@ def _cleanup_legacy_doorlock_subtype(
     # The device identifier device.py's formatted_name() produced for the
     # 'doorlock:doorlock' sub-type.
     device_gone = _remove_device_if_empty(
-        hass, (DOMAIN, f"{hub.wp_version}_Doorlock")
+        hass, entry, (DOMAIN, f"{hub.wp_version}_Doorlock")
     )
     if removed or device_gone:
         LOGGER.info(
@@ -217,9 +234,7 @@ def _merge_main_device_into_hub(
     and enable/disable state.
     """
     dev_reg = dr.async_get(hass)
-    legacy = dev_reg.async_get_device(
-        identifiers={(DOMAIN, f"{hub.wp_version}_{hub.model}")}
-    )
+    legacy = _get_device(hass, entry, (DOMAIN, f"{hub.wp_version}_{hub.model}"))
     if legacy is None or legacy.id == hub_device_id:
         return
 
@@ -389,6 +404,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         name=hub.name,
         sw_version=hub.sw_version,
     )
+    # 하위 디바이스가 via_device_id 로 가리킬 수 있도록 보관합니다.
+    # Kept so child devices can point at it with via_device_id.
+    hub.device_id = hub_device.id
 
     # 허브 디바이스가 존재해야 실행할 수 있는 v1.4.11 정리 작업들.
     # v1.4.11 cleanups — these need the hub device to exist first.

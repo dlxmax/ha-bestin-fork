@@ -11,6 +11,10 @@ from homeassistant.core import callback
 from .const import DOMAIN, FRIENDLY_TYPE_NAMES, MAIN_DEVICES
 from .until import formatted_name
 
+# HA 2026.8 이후 DeviceInfo 는 via_device 대신 via_device_id 를 받습니다.
+# HA 2026.8+ takes via_device_id in DeviceInfo; via_device is deprecated.
+_HAS_VIA_DEVICE_ID = "via_device_id" in DeviceInfo.__annotations__
+
 
 def _friendly_type_label(device_type: str) -> str:
     """친근한 표시명을 반환합니다 — Return the user-facing label for ``device_type``.
@@ -74,15 +78,19 @@ class BestinBase:
 
         stable_id = formatted_name(device_type)
         display_label = _friendly_type_label(device_type)
-        return DeviceInfo(
+        info = DeviceInfo(
             connections={(self.hub.hub_id, self.unique_id)},
             identifiers={(DOMAIN, f"{self.hub.wp_version}_{stable_id}")},
             manufacturer="HDC Labs Co., Ltd.",
             model=self.hub.wp_version,
             name=f"{self.hub.name} {display_label}",
             sw_version=self.hub.sw_version,
-            via_device=(DOMAIN, str(self.hub.hub_id)),
         )
+        if _HAS_VIA_DEVICE_ID and self.hub.device_id:
+            info["via_device_id"] = self.hub.device_id
+        else:
+            info["via_device"] = (DOMAIN, str(self.hub.hub_id))
+        return info
 
 
 class BestinDevice(BestinBase, Entity):

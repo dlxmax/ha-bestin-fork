@@ -234,6 +234,9 @@ class BestinHub:
             self.gateway_mode = None
         self.entity_groups: dict[str, set[str]] = {}
         self.entity_to_id: dict[str, str] = {}
+        # 허브 디바이스의 레지스트리 id (__init__.py 에서 설정).
+        # Registry id of the hub device, set in __init__.py.
+        self.device_id: str | None = None
 
     @staticmethod
     def get_hub(hass: HomeAssistant, entry: ConfigEntry) -> BestinCenterAPI | BestinController:
