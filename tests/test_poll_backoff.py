@@ -250,7 +250,7 @@ class _Dev:
         self.info = types.SimpleNamespace(state=state)
 
 
-def thermo_api(duty_active=False, room_mode="off"):
+def thermo_api(duty_active=False, room_mode="off", answers=True):
     api = make_api([])
     api._temper_next_poll = 0.0
     api.duty_cycle = _Duty(duty_active)
@@ -259,6 +259,8 @@ def thermo_api(duty_active=False, room_mode="off"):
 
     async def _fake_fetch(cls, room=None):
         api.calls.append(cls.key)
+        if answers and room is not None:
+            api._class_ever_ok.add((cls.key, room))
 
     api._fetch_class = _fake_fetch
     return api
@@ -291,6 +293,16 @@ check("duty-cycled room counts as heating", run_polls(api9, 10), 2)
 api10 = thermo_api()
 check("HA command wakes the 5 minute poll",
       run_polls(api10, 10, lambda i: i == 0 and api10._wake_thermostat_poll()), 2)
+
+
+# --- v1.4.19: a failed first thermostat poll is retried on the next poll ---
+api11 = thermo_api(answers=False)
+check("no room answered yet: thermostats asked every poll", run_polls(api11, 3), 3)
+api12 = thermo_api(answers=False)
+run_polls(api12, 1)
+api12._class_ever_ok.add(("temper", 1))
+check("  ...back to the 30 minute idle poll once one answers",
+      run_polls(api12, 10) - 1, 1)
 
 
 # --- v1.4.17: never more than MAX_CONCURRENT_REQUESTS in flight -------------
@@ -338,6 +350,24 @@ async def _burst():
 peak, done = asyncio.run(_burst())
 check("28 requests at once: peak in flight", peak, ip.MAX_CONCURRENT_REQUESTS)
 check("  ...all 28 still answered", done, 28)
+
+
+# --- v1.4.19: a total timeout is caught and logged, not lost --------------
+class _TimeoutSession:
+    def get(self, url, **kw):
+        raise asyncio.TimeoutError()
+
+
+async def _timed_out():
+    api = ip.BestinIparkAppAPI.__new__(ip.BestinIparkAppAPI)
+    api.host = "example.invalid"
+    api.session = _TimeoutSession()
+    api._request_slots = asyncio.Semaphore(ip.MAX_CONCURRENT_REQUESTS)
+    return await api._request("/x", {})
+
+
+ip.aiohttp.ClientError = type("ClientError", (Exception,), {})
+check("timeout returns None instead of raising", asyncio.run(_timed_out()), None)
 
 
 print()

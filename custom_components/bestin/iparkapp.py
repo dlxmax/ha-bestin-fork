@@ -613,8 +613,14 @@ class BestinIparkAppAPI:
             ) as resp:
                 resp.raise_for_status()
                 return await resp.text()
-        except aiohttp.ClientError as ex:
-            LOGGER.warning("요청 실패 — Request failed (%s): %s", path, ex)
+        except (aiohttp.ClientError, asyncio.TimeoutError) as ex:
+            # 전체 시간 초과는 ClientError 가 아니라 TimeoutError 로 옵니다.
+            # v1.4.18 까지는 이 경우가 잡히지 않아 로그 없이 사라졌습니다.
+            # A total timeout raises TimeoutError, not ClientError. Up to
+            # v1.4.18 it escaped here and vanished without a log line.
+            LOGGER.warning(
+                "요청 실패 — Request failed (%s): %s", path, str(ex) or type(ex).__name__
+            )
             return None
 
     @staticmethod
@@ -901,7 +907,18 @@ class BestinIparkAppAPI:
                 coros.append(self._fetch_class(cls))
 
         await asyncio.gather(*coros, return_exceptions=True)
-        if temper_due and not self._heating_active():
+        if temper_due and not any(
+            key[0] == "temper" for key in self._class_ever_ok if isinstance(key, tuple)
+        ):
+            # 아직 한 방도 응답하지 않았으면 다음 폴링에서 다시 묻습니다.
+            # v1.4.18 까지는 시작 직후 한 번 실패하면 모든 온도조절기가 30분
+            # 동안 '사용 불가' 였습니다.
+            # No room has answered yet: ask again on the next poll. Up to
+            # v1.4.18 one failed poll at startup left every thermostat
+            # unavailable for 30 minutes. Rooms that never answer still back
+            # off per room, see _fetch_class.
+            self._temper_next_poll = 0.0
+        elif temper_due and not self._heating_active():
             self._temper_next_poll = now + THERMOSTAT_IDLE_POLL_SECONDS
 
     def _heating_active(self) -> bool:
