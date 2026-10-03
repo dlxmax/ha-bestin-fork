@@ -198,6 +198,14 @@ ABSENT_CLASS_THRESHOLD = 5
 # a backoff rather than an off-switch.
 ABSENT_CLASS_RETRY_CYCLES = 60
 
+# 동시에 보내는 요청 수 상한. 시작 직후 첫 폴링은 약 28건을 한꺼번에 보내는데,
+# 단지 서버는 요청마다 월패드에 물어보고 답을 기다리므로 일부가 빈 응답으로
+# 돌아올 수 있습니다.
+# At most this many requests in flight. The first poll after a start sends
+# about 28 at once, and the complex server relays each one to the wallpad and
+# waits, so some could come back blank.
+MAX_CONCURRENT_REQUESTS = 3
+
 # 세션 갱신이 이만큼 연속 실패하면 HA 알림을 띄웁니다.
 # Consecutive session-refresh failures before raising a user-facing
 # notification. Kept above 1 so a single dropped request stays silent.
@@ -274,6 +282,7 @@ class BestinIparkAppAPI:
             connector=aiohttp.TCPConnector(),
             cookie_jar=aiohttp.CookieJar(unsafe=True),
         )
+        self._request_slots = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
         self.devices: dict[str, DeviceProfile] = {}
         self.tasks: list[Any] = []
@@ -596,7 +605,7 @@ class BestinIparkAppAPI:
             **AJAX_HEADERS,
         }
         try:
-            async with self.session.get(
+            async with self._request_slots, self.session.get(
                 url,
                 params=params,
                 headers=headers,
@@ -964,11 +973,14 @@ class BestinIparkAppAPI:
         )
 
         if result != RESULT_OK:
-            if room is not None and result is None:
-                # 응답이 비어 있다면 해당 객실에는 장치가 없다고 판단합니다.
-                # Empty response → assume the room doesn't exist; stop polling it.
-                self._room_exists[(cls.key, room)] = False
-            elif result in RESULT_ERRORS_FATAL:
+            # 빈 응답도 실패로 셉니다. v1.4.16 까지는 빈 응답 한 번에 그 방을
+            # 재시작 전까지 조회하지 않아, 시작 직후 한 번 빈 응답을 받은 실제
+            # 온도조절기가 '사용 불가' 로 남았습니다.
+            # An empty or unreadable reply counts as a failure too. Up to
+            # v1.4.16 a single one dropped the room until the next restart, so
+            # a real thermostat that answered blank once at startup stayed
+            # unavailable.
+            if result is None or result in RESULT_ERRORS_FATAL:
                 # 폴링 간격을 늘립니다 — back off; see the note in __init__.
                 key = probe_key
                 self._class_fatal_streak[key] = (

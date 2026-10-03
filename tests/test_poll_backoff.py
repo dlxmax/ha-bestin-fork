@@ -222,6 +222,19 @@ poll_room(api6, LIGHT, 1, 20)
 check("a room that has worked is never backed off",
       (LIGHT.key, 1) in api6._class_backed_off, False)
 
+# --- v1.4.17: one empty reply at startup must not drop a real room ----------
+TEMPER = ipc.DEVICE_CLASSES["temper"]
+api6b = make_api([""] + [OK_BODY] * 5)
+polled = poll_room(api6b, TEMPER, 3, 3)
+check("empty first reply: room still polled", polled, 3)
+check("  ...not marked absent", api6b._room_exists.get((TEMPER.key, 3)), True)
+
+api6c = make_api([""] * 50)
+polled = poll_room(api6c, TEMPER, 3, 10)
+check("always-empty room backs off like 'fail'", polled, ip.ABSENT_CLASS_THRESHOLD)
+check("  ...and re-probes itself",
+      poll_room(api6c, TEMPER, 3, ip.ABSENT_CLASS_RETRY_CYCLES + 2) >= 1, True)
+
 
 # --- v1.4.15: thermostats are polled every THERMOSTAT_POLL_SECONDS ----------
 class _Duty:
@@ -278,6 +291,53 @@ check("duty-cycled room counts as heating", run_polls(api9, 10), 2)
 api10 = thermo_api()
 check("HA command wakes the 5 minute poll",
       run_polls(api10, 10, lambda i: i == 0 and api10._wake_thermostat_poll()), 2)
+
+
+# --- v1.4.17: never more than MAX_CONCURRENT_REQUESTS in flight -------------
+class _Resp:
+    def __init__(self, track):
+        self.track = track
+
+    async def __aenter__(self):
+        self.track["now"] += 1
+        self.track["peak"] = max(self.track["peak"], self.track["now"])
+        # sleep(0) only yields; a timed sleep would hang on the fake clock
+        # patched in above.
+        for _ in range(5):
+            await asyncio.sleep(0)
+        return self
+
+    async def __aexit__(self, *exc):
+        self.track["now"] -= 1
+
+    def raise_for_status(self):
+        pass
+
+    async def text(self):
+        return OK_BODY
+
+
+class _Session:
+    def __init__(self, track):
+        self.track = track
+
+    def get(self, url, **kw):
+        return _Resp(self.track)
+
+
+async def _burst():
+    track = {"now": 0, "peak": 0}
+    api = ip.BestinIparkAppAPI.__new__(ip.BestinIparkAppAPI)
+    api.host = "example.invalid"
+    api.session = _Session(track)
+    api._request_slots = asyncio.Semaphore(ip.MAX_CONCURRENT_REQUESTS)
+    bodies = await asyncio.gather(*(api._request("/x", {}) for _ in range(28)))
+    return track["peak"], bodies.count(OK_BODY)
+
+
+peak, done = asyncio.run(_burst())
+check("28 requests at once: peak in flight", peak, ip.MAX_CONCURRENT_REQUESTS)
+check("  ...all 28 still answered", done, 28)
 
 
 print()
