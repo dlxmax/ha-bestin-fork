@@ -200,6 +200,9 @@ ON 시간 = cycle × duty% (사이클 시작부터) / ON for cycle × duty% from
 추가 제약 / additional constraint: 프리셋별 최소 on / off 시간. 수치는 `duty_cycle.py` 의 `PRESET_PROFILES` 참조.  
 *Plus per-preset minimum on/off times. See `PRESET_PROFILES` in `duty_cycle.py` for the numbers.*
 
+참고 문헌 (직접 확인한 것만) / References (checked): 짧은 고정 펄스 + 가변 휴지 / short fixed pulse with variable off-time: Tang et al., *Building and Environment* 127 (2018), doi:10.1016/j.buildenv.2017.11.004. 배관 속 정체수 냉각과 공급·환수 온도 기반 제어 / standing-water cooling and supply/return based control: Danfoss US 9027847 B2, US 6533186 B2. 온돌 바닥 승온·냉각 시간 / ondol floor warm-up and cool-down times: 이태강 외 2013, doi:10.12813/kieae.2013.13.3.061.  
+*Only sources that were actually opened are listed.*
+
 순수 비례 제어라 방 온도는 setpoint 보다 약간 아래에서 안정되는 경향이 있습니다. 프리셋 수치는 검증되지 않은 연구 파일에서 왔고, 실측으로 조정되지 않았습니다.  
 *Proportional-only control tends to settle slightly below the setpoint. The preset numbers came from the unverified research file and have not been tuned against measurements.*
 
