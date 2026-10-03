@@ -110,6 +110,17 @@ ENERGY_POLL_MINUTE = 10
 # 객실 탐색 범위 — Probe range when discovering room-scoped devices.
 ROOM_PROBE_RANGE = range(1, 7)
 
+# v1.4.16: 객실별 실내 온도 센서 옵션 키 접두어. 옵션 키는
+# ``room_temp_sensor_<방 번호>`` 이고 값은 HA 센서 entity_id 입니다.
+# v1.4.16: options key prefix for the per-room temperature sensor. Keys are
+# ``room_temp_sensor_<room number>``; values are HA sensor entity_ids.
+CONF_ROOM_TEMP_SENSOR_PREFIX = "room_temp_sensor_"
+
+
+def room_temp_sensor_key(room: int) -> str:
+    """객실 센서 옵션 키: Options key for a room's temperature sensor."""
+    return f"{CONF_ROOM_TEMP_SENSOR_PREFIX}{room}"
+
 # 친근한 표시명은 const.py 의 FRIENDLY_TYPE_NAMES 로 통합되었습니다 (v1.4.2).
 # 모든 게이트웨이가 동일한 표시명을 공유하며, 표시는 device_info 레벨에서만
 # 적용되므로 엔티티 unique_id 와 디바이스 식별자는 변하지 않습니다.

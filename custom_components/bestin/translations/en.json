@@ -82,11 +82,17 @@
         "step": {
             "init": {
                 "title": "Adjust User Options",
-                "description": "Thermostats expose the standard HA presets (Comfort / Eco / Sleep / Away / Vacation / Frost / Boost) per room. On the iPark Smarthome App option these also engage a software slow duty cycle (time-proportional control, not high-frequency PWM). Use the three importable HA Blueprints under `blueprints/automation/bestin/` for night setback / vacation / away schedules. See the [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#슬로우-듀티-사이클-제어--slow-duty-cycle-control) for details.",
+                "description": "Thermostats expose the standard HA presets (Comfort / Eco / Sleep / Away / Vacation / Frost / Boost) per room. On the iPark Smarthome App option these also engage a software slow duty cycle (time-proportional control, not high-frequency PWM). Use the three importable HA Blueprints under `blueprints/automation/bestin/` for night setback / vacation / away schedules. See the [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#슬로우-듀티-사이클-제어--slow-duty-cycle-control) for details.\n\nRoom temperature sensors (optional, iPark Smarthome App only): through the app the wallpad's temperature arrives as whole degrees, rounded down, and the wall unit often reads high. Pick an HA temperature sensor for a room and its thermostat shows that sensor, and the duty cycle presets control on it. The wallpad's own reading stays available as the `wallpad_temperature` attribute. Leave a room empty to keep using the wallpad.\n{rooms}",
                 "data": {
                     "max_send_retry": "Max Send Retry",
                     "packet_viewer": "Packet Viewer",
-                    "scan_interval": "Scan Interval (minutes)"
+                    "scan_interval": "Scan Interval (minutes)",
+                    "room_temp_sensor_1": "Room 1 temperature sensor",
+                    "room_temp_sensor_2": "Room 2 temperature sensor",
+                    "room_temp_sensor_3": "Room 3 temperature sensor",
+                    "room_temp_sensor_4": "Room 4 temperature sensor",
+                    "room_temp_sensor_5": "Room 5 temperature sensor",
+                    "room_temp_sensor_6": "Room 6 temperature sensor"
                 }
             }
         }

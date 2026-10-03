@@ -25,6 +25,7 @@ from homeassistant.const import (
 )
 import homeassistant.helpers.config_validation as cv
 
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import selector
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
@@ -49,7 +50,9 @@ from .iparkapp_const import (
     DEFAULT_POLL_INTERVAL,
     LOGIN_DATA_PATH,
     LOGIN_LANDING_PATH,
+    ROOM_PROBE_RANGE,
     USER_AGENT,
+    room_temp_sensor_key,
 )
 
 
@@ -492,16 +495,36 @@ class OptionsFlowHandler(OptionsFlow):
         """Get the appropriate schema based on the entry data."""
         # iPark 스마트홈 앱 — new gateway type takes its own option panel.
         if CONF_IPARKAPP_SITE in self.entry.data:
-            return vol.Schema(
-                {
-                    vol.Required(
-                        CONF_SCAN_INTERVAL,
-                        default=self.entry.options.get(
-                            CONF_SCAN_INTERVAL, DEFAULT_POLL_INTERVAL
-                        ),
-                    ): cv.positive_int,
-                }
-            )
+            fields: dict[Any, Any] = {
+                vol.Required(
+                    CONF_SCAN_INTERVAL,
+                    default=self.entry.options.get(
+                        CONF_SCAN_INTERVAL, DEFAULT_POLL_INTERVAL
+                    ),
+                ): cv.positive_int,
+            }
+            # v1.4.16: 객실별 실내 온도 센서 (선택). suggested_value 를 써야
+            # 사용자가 칸을 비웠을 때 매핑이 실제로 지워집니다.
+            # v1.4.16: optional per-room temperature sensor. suggested_value
+            # (not default) so clearing the field really removes the mapping.
+            for room in self._iparkapp_rooms():
+                key = room_temp_sensor_key(room)
+                fields[
+                    vol.Optional(
+                        key,
+                        description={"suggested_value": self.entry.options.get(key)},
+                    )
+                ] = selector(
+                    {
+                        "entity": {
+                            "filter": {
+                                "domain": "sensor",
+                                "device_class": "temperature",
+                            }
+                        }
+                    }
+                )
+            return vol.Schema(fields)
         if CONF_SESSION not in self.entry.data:
             return vol.Schema({
                 vol.Required(
@@ -520,6 +543,33 @@ class OptionsFlowHandler(OptionsFlow):
             ): cv.positive_int,
         })
 
+    def _iparkapp_thermostats(self) -> dict[int, str]:
+        """방 번호별 온도조절기 이름: Room number to thermostat name.
+
+        통합이 로드되어 있으면 실제 온도조절기만, 아니면 탐색 범위 전체를
+        보여줍니다. Lists the real thermostats when the integration is
+        loaded, otherwise the whole probe range.
+        """
+        hub = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id)
+        devices = getattr(getattr(hub, "api", None), "devices", None) or {}
+        registry = er.async_get(self.hass)
+        rooms: dict[int, str] = {}
+        for room in ROOM_PROBE_RANGE:
+            device = devices.get(f"bestin_temper_{room}")
+            if device is None:
+                continue
+            entity_id = registry.async_get_entity_id(
+                "climate", DOMAIN, device.unique_id
+            )
+            state = self.hass.states.get(entity_id) if entity_id else None
+            rooms[room] = state.name if state is not None else entity_id or str(room)
+        if not rooms:
+            rooms = {room: str(room) for room in ROOM_PROBE_RANGE}
+        return rooms
+
+    def _iparkapp_rooms(self) -> list[int]:
+        return list(self._iparkapp_thermostats())
+
     async def async_step_init(
         self,
         user_input: dict[str, Any] | None = None
@@ -532,8 +582,15 @@ class OptionsFlowHandler(OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
         
+        rooms = ""
+        if CONF_IPARKAPP_SITE in self.entry.data:
+            rooms = "\n".join(
+                f"- {room}: {name}"
+                for room, name in self._iparkapp_thermostats().items()
+            )
         return self.async_show_form(
             step_id="init",
             data_schema=self.get_data_schema(),
-            errors=errors
+            errors=errors,
+            description_placeholders={"rooms": rooms},
         )

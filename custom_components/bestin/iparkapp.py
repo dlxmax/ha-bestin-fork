@@ -41,9 +41,16 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.components.fan import ATTR_PRESET_MODE
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_STATE, CONF_SCAN_INTERVAL, WIND_SPEED
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import (
+    ATTR_STATE,
+    ATTR_UNIT_OF_MEASUREMENT,
+    CONF_SCAN_INTERVAL,
+    WIND_SPEED,
+    UnitOfTemperature,
+)
+from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.helpers.event import (
+    async_track_state_change_event,
     async_track_time_change,
     async_track_time_interval,
 )
@@ -89,6 +96,7 @@ from .iparkapp_const import (
     DeviceClass,
     make_unit_id,
     normalize_status,
+    room_temp_sensor_key,
 )
 from .duty_cycle import (
     PRESET_MODES_DEFAULT,
@@ -205,6 +213,19 @@ def _self_closing_re(tag: str) -> re.Pattern[str]:
     return re.compile(rf"<{re.escape(tag)}\b([^>]*?)/?>")
 
 
+
+def room_sensor_celsius(state: State | None) -> float | None:
+    """센서 상태를 °C 숫자로: A sensor state as °C, or None if unusable."""
+    if state is None:
+        return None
+    try:
+        value = float(state.state)
+    except (TypeError, ValueError):
+        return None  # unavailable / unknown / non-numeric
+    if state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) == UnitOfTemperature.FAHRENHEIT:
+        value = (value - 32) * 5 / 9
+    return round(value, 2)
+
 class BestinIparkAppAPI:
     """단지 중앙 서버 클라이언트 — Per-complex central-server client.
 
@@ -264,6 +285,20 @@ class BestinIparkAppAPI:
         self.duty_cycle: DutyCycleController = DutyCycleController(
             send_command=self.send_temper_raw_command,
         )
+        # v1.4.16: 옵션에서 매핑한 객실별 실내 온도 센서 (방 번호 → entity_id).
+        # 웹앱 경로에서는 월패드 온도가 정수로 내림되어 오고 (월패드 자체는 0.5
+        # 단위, RS-485 경로는 해당 없음) 실제보다 높게 읽히는 경우가 많아, 매핑된
+        # 방은 이 센서 값으로 듀티 사이클을 제어하고 화면에도 표시합니다.
+        # v1.4.16: per-room temperature sensors mapped in the options (room
+        # number -> entity_id). Over this web app path the wallpad reading
+        # arrives rounded down to whole degrees (the wall unit shows halves;
+        # RS-485 is not affected), and the wall unit often reads high, so
+        # mapped rooms are duty-cycled on, and display, the sensor's value.
+        self.room_sensors: dict[int, str] = {
+            room: entity_id
+            for room in ROOM_PROBE_RANGE
+            if (entity_id := entry.options.get(room_temp_sensor_key(room)))
+        }
         # 세션 갱신 주기 판단용 내부 상태입니다. v1.4.12 부터는 엔티티 속성
         # 으로 노출하지 않습니다 — 30초마다 값이 바뀌는 탓에 모든 엔티티가
         # 폴링마다 recorder 행을 하나씩 남겼습니다 (device.py 참고).
@@ -350,6 +385,7 @@ class BestinIparkAppAPI:
                 self.hass, self._scheduled_refresh, refresh_interval
             ),
         ]
+        self._track_room_sensors()
         self.duty_cycle.start(self.hass)
         # 재시도 끝에 살아난 경우 남아 있던 장애 알림을 지웁니다.
         # Clear any outage notification left over from earlier retries.
@@ -371,6 +407,49 @@ class BestinIparkAppAPI:
         await self.duty_cycle.stop()
         if not self.session.closed:
             await self.session.close()
+
+    # ------------------------------------------------------------------
+    # 객실 온도 센서: Room temperature sensors (v1.4.16)
+    # ------------------------------------------------------------------
+
+    def _track_room_sensors(self) -> None:
+        """매핑된 센서 구독: Follow the mapped room sensors.
+
+        센서 값은 바뀔 때마다 바로 반영되므로 단지 서버 폴링을 더 하지 않습니다.
+        Sensor changes apply as they happen, without any extra requests to
+        the complex server.
+        """
+        if not self.room_sensors:
+            return
+        for room, entity_id in self.room_sensors.items():
+            self._apply_room_sensor(room, self.hass.states.get(entity_id))
+        self.tasks.append(
+            async_track_state_change_event(
+                self.hass, list(self.room_sensors.values()), self._room_sensor_changed
+            )
+        )
+        LOGGER.info(
+            "객실 온도 센서 사용: using room sensors for %s",
+            ", ".join(f"room {r}: {e}" for r, e in sorted(self.room_sensors.items())),
+        )
+
+    @callback
+    def _room_sensor_changed(self, event: Event) -> None:
+        entity_id = event.data["entity_id"]
+        for room, mapped in self.room_sensors.items():
+            if mapped == entity_id:
+                self._apply_room_sensor(room, event.data.get("new_state"))
+
+    def _apply_room_sensor(self, room: int, state: State | None) -> None:
+        temp = room_sensor_celsius(state)
+        self.duty_cycle.set_sensor_temp(room, temp)
+        device = self.devices.get(f"{BRAND_PREFIX}_temper_{room}")
+        if device is None or not isinstance(device.info.state, dict):
+            return  # 첫 폴링 전: before the first poll; it applies the value.
+        wallpad = device.info.state.get("wallpad_temperature")
+        self._optimistic_temper_state(
+            room, **{ATTR_CURRENT_TEMPERATURE: temp if temp is not None else wallpad}
+        )
 
     @callback
     async def _scheduled_poll(self, now: datetime) -> None:
@@ -1060,6 +1139,17 @@ class BestinIparkAppAPI:
             # measured temperature into it; controlled rooms display the user's
             # true setpoint rather than the wallpad's currently-elevated echo.
             self.duty_cycle.upsert_current_temp(device_number, current)
+            if device_number in self.room_sensors:
+                # 매핑된 센서가 살아 있으면 그 값을 표시하고, 월패드 값은 속성으로
+                # 남깁니다. Show the mapped sensor while it is live and keep the
+                # wallpad's own reading as an attribute.
+                value["wallpad_temperature"] = current
+                value["temperature_sensor"] = self.room_sensors[device_number]
+                sensor_temp = room_sensor_celsius(
+                    self.hass.states.get(self.room_sensors[device_number])
+                )
+                if sensor_temp is not None:
+                    value[ATTR_CURRENT_TEMPERATURE] = sensor_temp
             room_state = self.duty_cycle.get_room(device_number)
             if room_state is not None:
                 value["preset_mode"] = room_state.preset

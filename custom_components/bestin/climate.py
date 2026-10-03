@@ -250,7 +250,15 @@ class BestinClimate(BestinDevice, RestoreEntity, ClimateEntity):
         """
         attrs = super().extra_state_attributes
         if isinstance(self._device_info.state, dict):
-            for key in ("duty_cycle_pct", "duty_cycle_phase", "duty_cycle_period_s"):
+            for key in (
+                "duty_cycle_pct",
+                "duty_cycle_phase",
+                "duty_cycle_period_s",
+                # v1.4.16: 객실 센서를 매핑한 방에만 있습니다.
+                # v1.4.16: only on rooms with a mapped room sensor.
+                "temperature_sensor",
+                "wallpad_temperature",
+            ):
                 val = self._device_info.state.get(key)
                 if val is not None:
                     attrs[key] = val

@@ -174,6 +174,18 @@ i-parklife.com 디렉터리에서 60여 개 단지가 자동으로 조회됩니�
 원본 YAML: [blueprints/automation/bestin/](https://github.com/dlxmax/ha-bestin-fork/tree/main/blueprints/automation/bestin)  
 *Raw YAML files: [blueprints/automation/bestin/](https://github.com/dlxmax/ha-bestin-fork/tree/main/blueprints/automation/bestin)*
 
+### 객실 온도 센서 / Room temperature sensors (v1.4.16)
+
+앱을 통해 받는 월패드 온도는 정수로 내림됩니다 (월패드 화면은 0.5 단위, RS-485 경로는 해당 없음). 월패드 센서는 실제보다 높게 읽는 경우도 많습니다. 통합 옵션에서 방마다 HA 온도 센서를 고를 수 있습니다 (선택).  
+*Through the app the wallpad temperature arrives as whole degrees, rounded down (the wall unit itself shows halves; RS-485 is not affected), and the wall unit often reads high. In the integration options you can pick an HA temperature sensor for each room (optional).*
+
+- 온도조절기의 현재 온도가 그 센서 값으로 바뀌고, 듀티 사이클 프리셋도 그 값으로 제어합니다. 센서 값은 바뀌는 즉시 반영되며 단지 서버 요청은 늘지 않습니다.  
+  *The thermostat's current temperature shows that sensor, and duty-cycle presets control on it. Changes apply as they happen, with no extra requests to the complex server.*
+- 월패드 값은 `wallpad_temperature` 속성으로 남습니다. ON 펄스의 setpoint 는 계속 월패드 값을 기준으로 계산합니다 (월패드는 자기 센서로 판단하므로).  
+  *The wallpad's reading stays available as the `wallpad_temperature` attribute. ON pulses are still computed from it, because the wallpad decides with its own sensor.*
+- 센서가 unavailable 이 되면 그 방은 월패드 온도로 되돌아갑니다. 'none' 프리셋에서는 월패드가 자기 센서로 판단하므로 표시만 바뀝니다.  
+  *If the sensor goes unavailable the room falls back to the wallpad reading. On the 'none' preset the wallpad still decides with its own sensor, so only the display changes.*
+
 ### 알고리즘 / Algorithm (참고 / reference)
 
 iparkapp 게이트웨이에서 활성 프리셋이 슬로우 듀티 사이클을 트리거할 때:

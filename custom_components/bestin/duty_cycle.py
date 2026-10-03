@@ -147,11 +147,34 @@ class RoomDutyCycleState:
     room: int
     preset: str = PRESET_NONE
     user_setpoint: float = 22.0
-    current_temp: float = 0.0
+    # 월패드가 보고한 온도. 아직 폴링 전이면 None. ON 펄스의 setpoint 는
+    # 반드시 이 값을 기준으로 계산합니다 (월패드는 자기 센서로 판단하므로).
+    # The wallpad's own reading, None until the first poll. ON pulses must be
+    # computed from this value, because the wallpad decides with its own
+    # sensor.
+    current_temp: float | None = None
+    # v1.4.16: 사용자가 옵션에서 지정한 실내 온도 센서 값. 없거나 사용할 수
+    # 없으면 None 이고, 그때는 월패드 온도로 제어합니다.
+    # v1.4.16: the room sensor the user mapped in the options. None when no
+    # sensor is mapped or it is unavailable; control then uses the wallpad.
+    sensor_temp: float | None = None
     target_duty_pct: float = 0.0
     last_sent_phase: bool | None = None  # True = on, False = off, None = never
     cycle_started_at: datetime = field(default_factory=datetime.now)
     phase_started_at: datetime = field(default_factory=datetime.now)
+
+    @property
+    def control_temp(self) -> float | None:
+        """제어에 쓰는 온도: The temperature the controller acts on.
+
+        iPark 웹앱 경로에서는 월패드 온도가 정수로 내림되어 오고 (월패드 자체는
+        0.5 단위), 월패드 센서는 실제보다 높게 읽는 경우가 많으므로, 매핑된
+        실내 센서가 살아 있으면 그 값을 우선합니다.
+        Over the iPark web app the wallpad value arrives rounded down to whole
+        degrees (the wall unit itself shows halves), and the wall unit often
+        reads high, so a live mapped room sensor takes priority.
+        """
+        return self.sensor_temp if self.sensor_temp is not None else self.current_temp
 
 
 # Type alias for the gateway-supplied send callback.
@@ -392,6 +415,19 @@ class DutyCycleController:
         st = self._get_or_create(room)
         st.current_temp = current_temp
 
+    def set_sensor_temp(self, room: int, temp: float | None) -> None:
+        """실내 센서 값 갱신: Update the mapped room sensor's reading.
+
+        None 은 센서가 없거나 unavailable/unknown 이라는 뜻이며, 그 경우
+        월패드 온도로 되돌아갑니다. 틱은 깨우지 않습니다: 다음 30 초 틱이
+        새 값을 쓰면 충분합니다.
+        None means no sensor or an unavailable/unknown state; control then
+        falls back to the wallpad reading. The tick is not woken: the next
+        30 s tick picking up the new value is soon enough.
+        """
+        room = self._norm_room(room)
+        self._get_or_create(room).sensor_temp = temp
+
     def get_room(self, room: int) -> RoomDutyCycleState | None:
         return self.rooms.get(self._norm_room(room))
 
@@ -446,6 +482,14 @@ class DutyCycleController:
             profile = PRESET_PROFILES[state.preset]
             if profile.cycle_period_s == 0:
                 continue  # passthrough preset (e.g. none); skip
+            if state.current_temp is None:
+                # 아직 월패드 온도가 없습니다. ON 펄스의 setpoint 를 계산할 수
+                # 없으므로 (예전에는 0+5 = "on/5" 를 보내 난방이 되지 않았음)
+                # 첫 폴링까지 기다립니다.
+                # No wallpad reading yet, so an ON pulse can't be computed
+                # (this used to send 0+5 = "on/5", which never heats). Wait
+                # for the first poll.
+                continue
             duty = self._compute_duty(state, profile)
             should_be_on = self._decide_phase(state, profile, duty, now)
             if should_be_on == state.last_sent_phase:
@@ -460,7 +504,7 @@ class DutyCycleController:
 
     @staticmethod
     def _compute_duty(state: RoomDutyCycleState, profile: PresetProfile) -> float:
-        error = state.user_setpoint - state.current_temp
+        error = state.user_setpoint - state.control_temp
         duty = max(0.0, min(100.0, (error / profile.proportional_band_c) * 100.0))
         if 0 < error < profile.overshoot_guard_c and duty > 50.0:
             duty *= profile.overshoot_factor
@@ -486,18 +530,21 @@ class DutyCycleController:
     ) -> None:
         """월패드에 명령 전송 — Issue the on/off pulse via the injected callback.
 
-        On-pulse: setpoint elevated to current+5°C so the wallpad's onboard
-        threshold actually calls for heat. Off-pulse: send the user's true
+        On-pulse: setpoint elevated to the *wallpad's* current+5°C so its
+        onboard threshold actually calls for heat. This uses the wallpad
+        reading even when a room sensor drives the decision, because the
+        wallpad compares the setpoint against its own sensor. Off-pulse: send the user's true
         setpoint so any external observer sees a sensible value at rest.
         """
         forced = state.current_temp + 5 if should_be_on else state.user_setpoint
         verb = "on" if should_be_on else "off"
         ctrl = f"{verb}/{forced:g}"
         LOGGER.debug(
-            "듀티 사이클 객실 %s → %s (preset=%s, duty=%.1f%%, current=%.1f, "
-            "setpoint=%.1f, sent=%s)",
+            "듀티 사이클 객실 %s → %s (preset=%s, duty=%.1f%%, wallpad=%s, "
+            "sensor=%s, setpoint=%.1f, sent=%s)",
             state.room, "ON" if should_be_on else "OFF", state.preset,
-            state.target_duty_pct, state.current_temp, state.user_setpoint, ctrl,
+            state.target_duty_pct, state.current_temp, state.sensor_temp,
+            state.user_setpoint, ctrl,
         )
         try:
             await self._send(state.room, ctrl)
