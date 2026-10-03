@@ -370,6 +370,19 @@ ip.aiohttp.ClientError = type("ClientError", (Exception,), {})
 check("timeout returns None instead of raising", asyncio.run(_timed_out()), None)
 
 
+# --- v1.4.19: devices found before the platforms load still get entities ---
+api13 = ip.BestinIparkAppAPI.__new__(ip.BestinIparkAppAPI)
+api13.devices = {
+    "bestin_temper_1": types.SimpleNamespace(domain="climate"),
+    "bestin_temper_2": types.SimpleNamespace(domain="climate"),
+    "bestin_livinglight_2": types.SimpleNamespace(domain="light"),
+}
+api13.entity_groups = {"climate": set()}     # what climate.py's setup leaves
+check("platform setup sees thermostats polled before it loaded",
+      len(api13.get_devices_from_domain("climate")), 2)
+check("  ...and only its own domain",
+      len(api13.get_devices_from_domain("light")), 1)
+
 print()
 print("FAILURES:", failures if failures else "none")
 sys.exit(1 if failures else 0)

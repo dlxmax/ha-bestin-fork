@@ -865,12 +865,22 @@ class BestinIparkAppAPI:
         Mirrors the center.py / controller.py method so the platform setup
         callbacks can call ``hub.api.get_devices_from_domain(...)`` regardless
         of which gateway is active.
+
+        플랫폼이 준비되기 전에 첫 폴링 응답이 도착한 장치도 돌려줍니다.
+        v1.4.19 까지는 이미 엔티티가 된 장치만 돌려줘서 (게다가 플랫폼 설정이
+        그 목록을 막 비운 직후라 항상 빈 목록), 그런 장치는 다음 폴링까지
+        엔티티가 없었습니다. 모든 방이 꺼져 있으면 온도조절기는 30분 동안
+        '사용 불가' 였습니다.
+
+        Also returns devices whose first poll reply arrived before the
+        platform was set up. Up to v1.4.19 this listed only devices that
+        already had an entity, and the platform had just emptied that list,
+        so it always came back empty: such devices got no entity until the
+        next poll, which for thermostats with every room off meant 30
+        minutes unavailable.
         """
-        entity_list = self.entity_groups.get(domain, set())
         return [
-            self.devices[uid]
-            for uid in entity_list
-            if uid in self.devices
+            device for device in self.devices.values() if device.domain == domain
         ]
 
     # ------------------------------------------------------------------
