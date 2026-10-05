@@ -352,10 +352,12 @@ class BestinIparkAppAPI:
         # room. A missing room that answers ``fail`` rather than an empty reply
         # used to be asked about again on every poll, forever.
 
-        # 난방 다음 폴링 시각 (time.monotonic 기준). 0 이면 첫 폴링에 바로 묻습니다.
-        # When the thermostats are next due (time.monotonic). 0 means the first
-        # poll asks straight away.
-        self._temper_next_poll: float = 0.0
+        # 방별 난방 다음 폴링 시각 (time.monotonic 기준). 없거나 0 이면 첫 폴링에
+        # 바로 묻습니다.
+        # When each room's thermostat is next due (time.monotonic). A missing
+        # entry or 0 means the next poll asks straight away.
+        self._temper_room_next: dict[int, float] = {}
+        self._poll_running: bool = False
 
         # 세션 갱신 연속 실패 횟수 — Consecutive session-refresh failures.
         # 첫 실패는 흔한 일시적 끊김이므로 알리지 않고, 연속으로 실패할 때만
@@ -463,10 +465,26 @@ class BestinIparkAppAPI:
     @callback
     async def _scheduled_poll(self, now: datetime) -> None:
         self.last_update_time = now
+        await self._poll_once()
+
+    async def _poll_once(self) -> None:
+        # 이전 폴링이 아직 끝나지 않았으면 건너뜁니다. 서버가 느리거나 멈추면
+        # 요청이 3건씩 15초 시간 초과까지 기다려 폴링 한 번이 60초를 넘길 수
+        # 있고 (첫 폴링은 약 28건), 그대로 두면 새 폴링이 겹쳐 쌓였습니다.
+        # Skip while the previous poll is still running. With the server slow
+        # or down, requests wait out a 15 s timeout three at a time, so one
+        # poll can outlast the 60 s interval (the first one sends about 28
+        # requests), and polls used to pile up on top of each other.
+        if self._poll_running:
+            LOGGER.debug("이전 폴링이 진행 중, 건너뜀 / previous poll still running, skipping")
+            return
+        self._poll_running = True
         try:
             await self._poll_all()
         except Exception as ex:  # noqa: BLE001 — log everything so HA shows it
             LOGGER.exception("폴링 실패 — Polling failed: %s", ex)
+        finally:
+            self._poll_running = False
 
     @callback
     async def _scheduled_energy_poll(self, now: datetime) -> None:
@@ -906,17 +924,10 @@ class BestinIparkAppAPI:
     async def _poll_all(self) -> None:
         """모든 장치 클래스를 동시에 갱신합니다 — Poll every class concurrently."""
         coros: list[Any] = []
+        polled_rooms: list[int] = []
         self._poll_cycle += 1
         now = time.monotonic()
-        # 난방은 켜진 방이 있으면 5분, 모두 꺼져 있으면 30분마다 묻습니다.
-        # Thermostats are asked every 5 minutes while any room is heating and
-        # every 30 minutes while all are off.
-        temper_due = now >= self._temper_next_poll
-        if temper_due:
-            self._temper_next_poll = now + THERMOSTAT_POLL_SECONDS
         for cls in DEVICE_CLASSES.values():
-            if cls.key == "temper" and not temper_due:
-                continue
             # 백오프 중인 클래스는 재시도 시점까지 건너뜁니다 — skip a backed-off
             # class until its next probe cycle comes round.
             if self._poll_cycle < self._class_next_probe.get(cls.key, 0):
@@ -928,45 +939,42 @@ class BestinIparkAppAPI:
                         continue
                     if self._poll_cycle < self._class_next_probe.get((cls.key, n), 0):
                         continue
+                    # 난방은 방마다 따로 묻습니다: 켜진 방은 5분, 꺼진 방은
+                    # 30분. v1.4.19 까지는 한 방만 켜져 있어도 모든 방을 5분마다
+                    # 물었습니다.
+                    # Thermostats are asked room by room: 5 minutes for a room
+                    # that is heating, 30 for one that is off. Up to v1.4.19
+                    # one heating room made every room get asked every 5.
+                    if cls.key == "temper":
+                        if now < self._temper_room_next.get(n, 0.0):
+                            continue
+                        polled_rooms.append(n)
                     coros.append(self._fetch_class(cls, room=n))
             else:
                 coros.append(self._fetch_class(cls))
 
         await asyncio.gather(*coros, return_exceptions=True)
-        if temper_due and self._temper_rooms_pending():
-            # 아직 응답하지 않은 방이 있으면 다음 폴링에서 다시 묻습니다.
-            # v1.4.18 까지는 시작 직후 한 방이 실패하면 그 온도조절기가 30분
-            # 동안 '사용 불가' 였습니다.
-            # A room has not answered yet: ask again on the next poll. Up to
-            # v1.4.18 a room that failed once at startup stayed unavailable
-            # for 30 minutes. Rooms that never answer still back off per
-            # room, see _fetch_class.
-            self._temper_next_poll = 0.0
-        elif temper_due and not self._heating_active():
-            self._temper_next_poll = now + THERMOSTAT_IDLE_POLL_SECONDS
-
-    def _temper_rooms_pending(self) -> bool:
-        """응답을 기다리는 방이 있는지 / Is a room still waiting for its first
-        answer?
-
-        한 번도 응답하지 않았고, 없는 방으로 판정되거나 백오프되지 않은 방을
-        셉니다.
-
-        Counts rooms that have never answered and are neither known to be
-        absent nor backed off.
-        """
-        for n in ROOM_PROBE_RANGE:
+        for n in polled_rooms:
             key = ("temper", n)
-            if (
-                key not in self._class_ever_ok
-                and self._room_exists.get(key, True)
-                and self._poll_cycle >= self._class_next_probe.get(key, 0)
-            ):
-                return True
-        return False
+            if key not in self._class_ever_ok:
+                # 아직 응답하지 않은 방은 다음 폴링에서 다시 묻습니다. v1.4.18
+                # 까지는 시작 직후 한 방이 실패하면 그 온도조절기가 30분 동안
+                # '사용 불가' 였습니다. 끝내 응답하지 않는 방은 방별 백오프가
+                # 따로 늘립니다 (_fetch_class 참고).
+                # A room that has not answered yet is asked again on the next
+                # poll. Up to v1.4.18 a room that failed once at startup stayed
+                # unavailable for 30 minutes. Rooms that never answer back off
+                # per room, see _fetch_class.
+                self._temper_room_next[n] = 0.0
+            else:
+                self._temper_room_next[n] = now + (
+                    THERMOSTAT_POLL_SECONDS
+                    if self._room_heating(n)
+                    else THERMOSTAT_IDLE_POLL_SECONDS
+                )
 
-    def _heating_active(self) -> bool:
-        """난방 중인 방이 있는지 / Is any room heating or duty-cycled?
+    def _room_heating(self, room: int) -> bool:
+        """이 방이 난방 중인가 / Is this room heating or duty-cycled?
 
         방금 받은 폴링 응답의 원래 모드(raw_mode)로 판단합니다. 듀티 사이클
         프리셋이 걸린 방은 OFF 구간에도 난방 중으로 칩니다.
@@ -974,20 +982,21 @@ class BestinIparkAppAPI:
         Judged from the raw mode of the latest poll reply. A room on a
         duty-cycle preset counts as heating even during its off phase.
         """
-        if self.duty_cycle.any_active():
+        if self.duty_cycle.is_active_for(room):
             return True
+        suffix = f"_temper_{room}"
         for device_id, device in self.devices.items():
             state = device.info.state
-            if "_temper_" in device_id and isinstance(state, dict):
-                if state.get("raw_mode") in ("on", "heat"):
-                    return True
+            if device_id.endswith(suffix) and isinstance(state, dict):
+                return state.get("raw_mode") in ("on", "heat")
         return False
 
-    def _wake_thermostat_poll(self) -> None:
-        """HA 에서 난방을 조작하면 5분 간격으로 복귀 / Back to the 5 minute
-        thermostat poll after a thermostat command from HA."""
-        self._temper_next_poll = min(
-            self._temper_next_poll, time.monotonic() + THERMOSTAT_POLL_SECONDS
+    def _wake_thermostat_poll(self, room: int) -> None:
+        """HA 에서 방 난방을 조작하면 그 방만 5분 간격으로 복귀 / Back to the
+        5 minute poll for one room after a thermostat command from HA."""
+        self._temper_room_next[room] = min(
+            self._temper_room_next.get(room, 0.0),
+            time.monotonic() + THERMOSTAT_POLL_SECONDS,
         )
 
     async def _poll_energy(self) -> None:
@@ -1426,7 +1435,7 @@ class BestinIparkAppAPI:
         # 온도조절기는 표준 HA preset_mode 와 setpoint 양쪽을 수용합니다.
         # Thermostat: accept both standard HA preset_mode and setpoint changes.
         if device_type == "temper":
-            self._wake_thermostat_poll()
+            self._wake_thermostat_poll(room_id)
             preset = _extract_preset_mode(kwargs)
             if preset is not None:
                 profile = self.duty_cycle.set_preset(room_id, preset)

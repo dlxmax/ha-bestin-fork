@@ -110,6 +110,7 @@ def make_api(bodies):
     api._class_next_probe = {}
     api._class_backed_off = set()
     api._room_exists = {}
+    api._temper_room_next = {}
     api._unit_cnt = {}
     api.requests = []
 
@@ -237,12 +238,17 @@ check("  ...and re-probes itself",
 
 
 # --- v1.4.15: thermostats are polled every THERMOSTAT_POLL_SECONDS ----------
+# v1.4.20: ...room by room. A heating room is asked every 5 minutes and an off
+# room every 30, regardless of what the other rooms are doing.
 class _Duty:
-    def __init__(self, active):
-        self.active = active
+    def __init__(self, active_rooms):
+        self.active_rooms = set(active_rooms)
 
     def any_active(self):
-        return self.active
+        return bool(self.active_rooms)
+
+    def is_active_for(self, room):
+        return room in self.active_rooms
 
 
 class _Dev:
@@ -250,15 +256,20 @@ class _Dev:
         self.info = types.SimpleNamespace(state=state)
 
 
-def thermo_api(duty_active=False, room_mode="off", answers=True):
+ALL_ROOMS = set(ipc.ROOM_PROBE_RANGE)
+
+
+def thermo_api(duty_rooms=(), on_rooms=(), answers=True):
     api = make_api([])
-    api._temper_next_poll = 0.0
-    api.duty_cycle = _Duty(duty_active)
-    api.devices = {"bestin_temper_1": _Dev({"raw_mode": room_mode})}
+    api.duty_cycle = _Duty(duty_rooms)
+    api.devices = {
+        f"bestin_temper_{n}": _Dev({"raw_mode": "on" if n in on_rooms else "off"})
+        for n in ipc.ROOM_PROBE_RANGE
+    }
     api.calls = []
 
     async def _fake_fetch(cls, room=None):
-        api.calls.append(cls.key)
+        api.calls.append((cls.key, room))
         if answers and room is not None:
             api._class_ever_ok.add((cls.key, room))
 
@@ -277,22 +288,48 @@ def run_polls(api, n, between=None):
         if between:
             between(i)
         clock[0] += 60
-    return api.calls.count("temper") // ROOMS
+    return temper_count(api) // ROOMS
 
 
-api7 = thermo_api(room_mode="on")
+def temper_count(api, room=None):
+    return sum(
+        1 for key, n in api.calls
+        if key == "temper" and (room is None or n == room)
+    )
+
+
+api7 = thermo_api(on_rooms=ALL_ROOMS)
 check("heating: thermostats polled twice in 9 minutes", run_polls(api7, 10), 2)
-check("other classes polled every time", api7.calls.count("ventil"), 10)
+check("other classes polled every time", sum(1 for key, _ in api7.calls if key == "ventil"), 10)
 
 api8 = thermo_api()
 check("all off: thermostats polled 3 times in 69 minutes", run_polls(api8, 70), 3)
 
-api9 = thermo_api(duty_active=True)
+api9 = thermo_api(duty_rooms=ALL_ROOMS)
 check("duty-cycled room counts as heating", run_polls(api9, 10), 2)
 
 api10 = thermo_api()
-check("HA command wakes the 5 minute poll",
-      run_polls(api10, 10, lambda i: i == 0 and api10._wake_thermostat_poll()), 2)
+check("HA command wakes the 5 minute poll (the rooms checked is just that one)",
+      run_polls(api10, 10, lambda i: i == 0 and api10._wake_thermostat_poll(1)), 1)
+
+
+api15 = thermo_api(on_rooms={2})
+run_polls(api15, 10)
+check("one room heating: that room asked every 5 minutes", temper_count(api15, 2), 2)
+check("  ...the off rooms are not asked again", temper_count(api15, 1), 1)
+check("  ...nor the rest", temper_count(api15, 5), 1)
+
+api16 = thermo_api(duty_rooms={3})
+run_polls(api16, 10)
+check("duty-cycled room alone is asked every 5 minutes",
+      (temper_count(api16, 3), temper_count(api16, 4)), (2, 1))
+
+api17 = thermo_api(on_rooms={2})
+run_polls(api17, 1)
+api17.devices["bestin_temper_2"] = _Dev({"raw_mode": "off"})
+run_polls(api17, 69)
+check("room switched off falls back to the 30 minute poll",
+      (temper_count(api17, 2), temper_count(api17, 1)), (4, 3))
 
 
 # --- v1.4.19: a failed first thermostat poll is retried on the next poll ---
@@ -301,24 +338,26 @@ check("no room answered yet: thermostats asked every poll", run_polls(api11, 3),
 api12 = thermo_api(answers=False)
 run_polls(api12, 1)
 api12._class_ever_ok.update(("temper", n) for n in ipc.ROOM_PROBE_RANGE if n != 2)
-check("one room still silent: thermostats asked every poll",
-      run_polls(api12, 4) - 1, 4)
+run_polls(api12, 4)
+check("one room still silent: only that room is asked every poll",
+      (temper_count(api12, 2), temper_count(api12, 1)), (5, 2))
 api12._class_ever_ok.add(("temper", 2))
+run_polls(api12, 10)
 check("  ...back to the 30 minute idle poll once every room answers",
-      run_polls(api12, 10) - 5, 1)
+      (temper_count(api12, 2), temper_count(api12, 1)), (6, 2))
 api13 = thermo_api()
 api13._class_ever_ok.discard(("temper", 2))
 api13._room_exists[("temper", 2)] = False
 run_polls(api13, 10)
 check("  ...a room known to be absent does not hold the retry",
-      api13.calls.count("temper"), ROOMS - 1)
+      temper_count(api13), ROOMS - 1)
 api14 = thermo_api(answers=False)
 run_polls(api14, 1)
 api14._class_ever_ok.update(("temper", n) for n in ipc.ROOM_PROBE_RANGE if n != 2)
 api14._class_next_probe[("temper", 2)] = 10**6
 run_polls(api14, 10)
 check("  ...nor does a backed-off room",
-      api14.calls.count("temper"), ROOMS + ROOMS - 1)
+      temper_count(api14), ROOMS + ROOMS - 1)
 
 
 # --- v1.4.17: never more than MAX_CONCURRENT_REQUESTS in flight -------------
@@ -446,6 +485,37 @@ check("platform setup sees thermostats polled before it loaded",
       len(api13.get_devices_from_domain("climate")), 2)
 check("  ...and only its own domain",
       len(api13.get_devices_from_domain("light")), 1)
+
+
+
+# --- v1.4.20: a poll that is still running is not started again -------------
+api18 = make_api([])
+api18._poll_running = False
+started = []
+release = []
+
+
+async def _slow_poll_all():
+    started.append(1)
+    await release[0].wait()
+
+
+api18._poll_all = _slow_poll_all
+
+
+async def _overlap():
+    release.append(asyncio.Event())
+    first = asyncio.ensure_future(api18._poll_once())
+    await asyncio.sleep(0)
+    await api18._poll_once()       # arrives while the first is running
+    release[0].set()
+    await first
+    await api18._poll_once()       # free again: runs
+
+
+asyncio.run(_overlap())
+check("overlapping poll is skipped, the next one runs", len(started), 2)
+check("  ...and the flag is cleared", api18._poll_running, False)
 
 print()
 print("FAILURES:", failures if failures else "none")
