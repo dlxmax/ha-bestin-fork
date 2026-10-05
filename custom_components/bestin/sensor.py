@@ -22,6 +22,9 @@ from .const import NEW_SENSOR
 from .device import BestinDevice
 from .hub import BestinHub
 
+# 검침값이 없을 때 표시하는 문자 / What a sensor shows while it has no reading.
+NO_READING = "-"
+
 DEVICE_ICON = {
     "light:dcvalue": "mdi:flash",
     "outlet:powercons": "mdi:flash",
@@ -233,22 +236,34 @@ class BestinSensor(BestinDevice, SensorEntity):
         self._attr_icon = DEVICE_ICON.get(self._device_info.device_type)
 
     @property
+    def _no_reading(self) -> bool:
+        """값이 없는 상태인가 / Is the meter publishing nothing right now?"""
+        return self._device_info.state is None
+
+    @property
     def native_value(self):
         """Return the state of the sensor.
 
-        ``None`` 은 '값 없음' 을 뜻하며 HA 는 이를 '알 수 없음' 으로 표시하고
-        통계에도 기록하지 않습니다. 단지 검침 서버가 값을 올리지 않는 동안
-        에너지 센서가 이 경로를 탑니다 (iparkapp.latest_energy_reading 참고).
+        ``None`` 은 '값 없음' 을 뜻합니다. 단지 검침 서버가 값을 올리지 않는
+        동안 에너지 센서가 이 경로를 타며 (iparkapp.latest_energy_reading
+        참고), 이때는 '알 수 없음' 대신 대시 ``-`` 를 보여줍니다. 숫자 센서는
+        문자열 상태를 가질 수 없으므로 값이 없는 동안에는 device_class, 단위,
+        state_class, 표시 자릿수도 함께 비웁니다. 그러면 HA 는 통계를 만들지
+        않아 0 으로 기록되는 일이 없고, 값이 돌아오면 모두 제자리로 돌아옵니다.
         스케일 변환 함수에 None 을 넘기면 TypeError 가 나므로 먼저 걸러냅니다.
 
-        ``None`` means "no reading": HA renders it as Unknown and records no
-        statistics for it. The energy sensors take this path while the
-        complex's metering backend publishes nothing (see
-        ``iparkapp.latest_energy_reading``). Filter it out before the scaling
-        conversions, which would raise TypeError on None.
+        ``None`` means "no reading". The energy sensors take this path while
+        the complex's metering backend publishes nothing (see
+        ``iparkapp.latest_energy_reading``), and then show a dash ``-``
+        instead of Unknown. A numeric sensor cannot hold a string state, so
+        while there is no reading the device class, unit, state class and
+        display precision are dropped too. HA then compiles no statistics, so
+        nothing is recorded as 0, and everything comes back with the reading.
+        Filter it out before the scaling conversions, which would raise
+        TypeError on None.
         """
-        if self._device_info.state is None:
-            return None
+        if self._no_reading:
+            return NO_READING
         factor = VALUE_CONVERSION.get(self._device_info.device_type)
         if callable(factor):
             return factor(self._device_info.state, self.hub.wp_version)
@@ -257,16 +272,22 @@ class BestinSensor(BestinDevice, SensorEntity):
     @property
     def device_class(self):
         """Return the class of the sensor."""
+        if self._no_reading:
+            return None
         return DEVICE_CLASS.get(self._device_info.device_type)
 
     @property
     def native_unit_of_measurement(self):
         """Return the unit of measurement of this sensor."""
+        if self._no_reading:
+            return None
         return DEVICE_UNIT.get(self._device_info.device_type)
 
     @property
     def state_class(self):
         """Type of this sensor state."""
+        if self._no_reading:
+            return None
         device_type = self._device_info.device_type
         if device_type in TOTAL_INCREASING_TYPES:
             return "total_increasing"
@@ -279,4 +300,6 @@ class BestinSensor(BestinDevice, SensorEntity):
     @property
     def suggested_display_precision(self):
         """Number of decimals HA should show by default."""
+        if self._no_reading:
+            return None
         return SUGGESTED_PRECISION.get(self._device_info.device_type)
