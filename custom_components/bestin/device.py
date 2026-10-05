@@ -166,8 +166,20 @@ class BestinDevice(BestinBase, Entity):
 
     @property
     def should_poll(self) -> bool:
-        """Determine if the device requires polling."""
-        return self.hub.is_polling
+        """HA 가 엔티티를 직접 폴링할지 여부: 항상 False.
+
+        모든 엔티티는 상태가 바뀔 때 ``update_callbacks`` 로 값을 밀어
+        받습니다. 서버 폴링은 iparkapp 의 자체 루프가 맡고, 엔티티에는
+        ``async_update`` 가 없어서 HA 의 30초 갱신은 같은 상태를 다시 쓰는
+        일밖에 하지 못했습니다 (v1.4.20 까지 iPark 앱 모드에서 켜져 있었음).
+
+        Always False: every entity gets its state pushed through
+        ``update_callbacks`` when it changes, and the server polling is done
+        by the integration's own loop. The entities have no ``async_update``,
+        so HA's 30 s refresh only rewrote identical state (it was on in iPark
+        app mode through v1.4.20).
+        """
+        return False
 
     @property
     def extra_state_attributes(self) -> dict:
