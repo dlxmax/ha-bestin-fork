@@ -38,41 +38,40 @@ IPARKAPP_RETRY_SECONDS = 300
 _LAST_IPARKAPP_ATTEMPT: dict[str, float] = {}
 
 
-def _cleanup_legacy_doorlock_switches(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """v1.4.2 마이그레이션: 도어락이 switch → binary_sensor 로 이동했습니다.
+def _cleanup_stale_doorlock_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """도어락의 이전 플랫폼 엔티티를 레지스트리에서 제거합니다.
 
-    HA 1.4.1 이하에서 도어락은 ``switch`` 도메인에 등록되었지만 게이트웨이는
-    제어를 지원하지 않았습니다. 1.4.2 부터는 ``binary_sensor`` 로 등록되므로,
-    오래된 ``switch.*doorlock*`` 엔트리가 'unavailable' 로 남아 보이지 않도록
-    엔티티 레지스트리에서 제거합니다.
+    v1.4.2 는 모든 게이트웨이에서 도어락을 ``binary_sensor`` 로 옮겼습니다.
+    v1.4.22 부터 RS-485 와 클라우드는 포크 이전과 같은 ``switch`` 로 돌아가고,
+    제어 경로가 없는 iPark 앱만 ``binary_sensor`` 로 남습니다. 게이트웨이에
+    맞지 않는 쪽의 엔트리는 'unavailable' 로 남지 않도록 제거합니다.
 
-    v1.4.2 migration: doorlock moved from ``switch`` (which the gateway did not
-    actually control) to ``binary_sensor`` (read-only state). Any existing
-    switch entries with ``unique_id`` containing ``doorlock`` are removed from
-    the entity registry so they do not linger as 'unavailable' orphans.
+    v1.4.2 moved the door lock to ``binary_sensor`` on every gateway. From
+    v1.4.22 RS-485 and cloud are back on the pre-fork ``switch``, and only the
+    iPark app, which has no control endpoint, stays on ``binary_sensor``. Entries
+    on the platform the gateway no longer uses are removed so they do not linger
+    as 'unavailable' orphans.
     """
-    registry = er.async_get(hass)
-    removed = 0
-    for entity_id, ent in list(registry.entities.items()):
-        if ent.config_entry_id != entry.entry_id:
-            continue
-        if ent.domain != Platform.SWITCH.value:
-            continue
-        if "doorlock" not in (ent.unique_id or "").lower():
-            continue
-        registry.async_remove(entity_id)
-        removed += 1
+    stale_domain = (
+        Platform.SWITCH.value
+        if CONF_IPARKAPP_SITE in entry.data
+        else Platform.BINARY_SENSOR.value
+    )
+    removed = _remove_entities_matching(hass, entry, _DOORLOCK_RE, stale_domain)
     if removed:
         LOGGER.info(
-            "v1.4.2 마이그레이션: 오래된 도어락 switch 엔티티 %d개 제거 / "
-            "Removed %d legacy doorlock switch entries.",
-            removed,
-            removed,
+            "오래된 도어락 %s 엔티티 %d개 제거 / "
+            "Removed %d stale doorlock %s entries.",
+            stale_domain,
+            len(removed),
+            len(removed),
+            stale_domain,
         )
 
 
 # urlsafe-base64 hash suffix may include '_' and '-' (e.g. 'RI4_NLDU').
 _HASH_SUFFIX = r"(-[A-Z0-9_-]+)?"
+_DOORLOCK_RE = re.compile(r".*doorlock", re.IGNORECASE)
 _LEGACY_HEATSOURCE_RE = re.compile(rf"^bestin_heatsource_\d+_supply{_HASH_SUFFIX}$")
 
 # v1.4.11 — 도어락 unique_id 가 서버 응답의 unit_num 철자에 딸려 다녔습니다.
@@ -371,13 +370,17 @@ async def _async_setup_iparkapp(
     async_clear_unavailable(hass, entry)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up the BESTIN integration."""
-    _cleanup_legacy_doorlock_switches(hass, entry)
-    _cleanup_legacy_heatsource_sensors(hass, entry)
-    hub = BestinHub(hass, entry)
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = hub
+def _register_hub_device(hass: HomeAssistant, entry: ConfigEntry, hub: BestinHub) -> None:
+    """허브 디바이스를 등록하고 v1.4.11 정리 작업을 실행합니다.
 
+    ``hub.wp_version`` 을 읽으므로 RS-485 에서는 게이트웨이 모드가 정해진 뒤에
+    호출해야 합니다. v1.4.4 ~ v1.4.21 은 그 전에 읽어서, 모드가 아직 저장되지
+    않은 새 RS-485 설치는 'NoneType is not subscriptable' 로 설정에 실패했습니다.
+
+    Reads ``hub.wp_version``, so on RS-485 this must run after the gateway mode
+    is known. v1.4.4 through v1.4.21 read it earlier, and a new RS-485 install
+    (no saved mode yet) failed setup with "NoneType is not subscriptable".
+    """
     # 허브 디바이스 등록 — Register the hub as a device so per-platform
     # device entries' ``via_device`` references resolve. v1.4.3 까지는 각 엔티티
     # 가 ``via_device=(DOMAIN, hub_id)`` 를 선언했지만 일치하는 부모 디바이스
@@ -414,8 +417,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _cleanup_legacy_doorlock_subtype(hass, entry, hub)
     _cleanup_heat_supply_sensors(hass, entry)
 
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up the BESTIN integration."""
+    _cleanup_stale_doorlock_entities(hass, entry)
+    _cleanup_legacy_heatsource_sensors(hass, entry)
+    hub = BestinHub(hass, entry)
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = hub
+
     # iPark 스마트홈 앱 — new gateway type takes precedence when its key is present.
     if CONF_IPARKAPP_SITE in entry.data:
+        _register_hub_device(hass, entry, hub)
         LOGGER.info("Start iParkApp initialization.")
         await _async_setup_iparkapp(hass, entry, hub)
     elif CONF_SESSION not in entry.data:
@@ -428,7 +440,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         LOGGER.info("Start serial initialization.")
         await hub.async_initialize_serial()
+        _register_hub_device(hass, entry, hub)
     else:
+        _register_hub_device(hass, entry, hub)
         LOGGER.info("Start center initialization.")
         await hub.async_initialize_center()
 

@@ -100,7 +100,7 @@ iPark 스마트홈 앱 / 클라우드 옵션은 별도의 하드웨어가 필요
 | HEMS | O | 실시간 + 총합 사용량 / Live + total usage |
 | 환기 / Ventilation | O | 프리셋 (자연풍) / Presets (natural ventilation) |
 | 가스 / Gas valve | O | 닫기 전용 (앱 동일) / Close-only (matches the app) |
-| 도어락 / Door lock | O | 상태 표시만 (앱 동일) / Status only (matches the app) |
+| 도어락 / Door lock | O | RS-485 · 클라우드: 스위치, 켜기와 끄기가 같은 RS-485 패킷을 보내며 클라우드 v1 은 명령을 지원하지 않음. iPark 스마트홈 앱: 상태 표시만 (앱 동일) / RS-485 and cloud: switch; on and off send the same RS-485 packet, and cloud v1 does not support the command. iPark Smarthome App: status only (matches the app) |
 | 난방 / Heating | O | 객실 + 추가 비제어 난방 온도 센서 (있는 경우, 정확한 의미는 단지마다 상이) / Per-room + an extra uncontrollable heat-temperature sensor where the wallpad reports more 'rooms' than it has thermostats (exact meaning varies by complex) |
 | 객실별 실내 온도 센서 / Per-room temperature sensors | O | iPark 스마트홈 앱 옵션 한정. 통합 옵션에서 객실마다 HA 온도 센서를 지정하면 표시 온도와 듀티 사이클 제어가 월패드 대신 그 센서를 사용합니다 (앱 경로는 월패드 온도를 정수로 내림). v1.4.16+. / iPark Smarthome App option only. Pick an HA temperature sensor per room in the integration options and the displayed temperature and duty-cycle control use it instead of the wallpad (the app path floors wallpad readings to whole degrees). v1.4.16+. |
 | 외출 모드 / Away mode | O | iPark 스마트홈 앱 옵션 한정 (별도 entity) / iPark Smarthome App option only (separate entity) |

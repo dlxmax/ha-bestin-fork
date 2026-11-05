@@ -28,32 +28,32 @@ NO_READING = "-"
 DEVICE_ICON = {
     "light:dcvalue": "mdi:flash",
     "outlet:powercons": "mdi:flash",
-    "electric:realtime": "mdi:flash",
-    "electric:total": "mdi:lightning-bolt",
-    "gas:realtime": "mdi:gas-cylinder",
-    "gas:total": "mdi:gas-cylinder",
-    "heat:realtime": "mdi:radiator",
-    "heat:total": "mdi:thermometer-lines",
-    "hotwater:realtime": "mdi:water-boiler",
-    "hotwater:total": "mdi:water-boiler",
-    "water:realtime": "mdi:water-pump",
-    "water:total": "mdi:water-pump",
+    "electric:realtime": "mdi:home-lightning-bolt",
+    "electric:total": "mdi:home-lightning-bolt",
+    "gas:realtime": "mdi:gas-burner",
+    "gas:total": "mdi:gas-burner",
+    "heat:realtime": "mdi:heating-coil",
+    "heat:total": "mdi:heating-coil",
+    "hotwater:realtime": "mdi:thermometer-water",
+    "hotwater:total": "mdi:thermometer-water",
+    "water:realtime": "mdi:water",
+    "water:total": "mdi:water",
     # 클라우드 에너지 비교 값 (iparkapp.py). "mine_*"는 가구 총 사용량,
     # "avg_*"는 단지 평균치입니다. const.ENERGY_FRIENDLY_LABELS 참고.
     #
     # BESTIN Energy cloud comparison readings (iparkapp.py). "mine_*" is the
     # household meter total, "avg_*" is the complex-wide neighbor average.
     # See const.ENERGY_FRIENDLY_LABELS.
-    "energy:mineelec": "mdi:lightning-bolt",
-    "energy:avgelec": "mdi:lightning-bolt-outline",
-    "energy:minegas": "mdi:gas-cylinder",
-    "energy:avggas": "mdi:gas-cylinder",
-    "energy:minewater": "mdi:water-pump",
-    "energy:avgwater": "mdi:water-pump",
-    "energy:minehwater": "mdi:water-boiler",
-    "energy:avghwater": "mdi:water-boiler",
-    "energy:mineheat": "mdi:radiator",
-    "energy:avgheat": "mdi:radiator",
+    "energy:mineelec": "mdi:home-lightning-bolt",
+    "energy:avgelec": "mdi:home-lightning-bolt",
+    "energy:minegas": "mdi:gas-burner",
+    "energy:avggas": "mdi:gas-burner",
+    "energy:minewater": "mdi:water",
+    "energy:avgwater": "mdi:water",
+    "energy:minehwater": "mdi:thermometer-water",
+    "energy:avghwater": "mdi:thermometer-water",
+    "energy:mineheat": "mdi:heating-coil",
+    "energy:avgheat": "mdi:heating-coil",
 }
 
 DEVICE_CLASS = {
@@ -188,6 +188,26 @@ SUGGESTED_PRECISION = {
 }
 
 
+def _lookup_key(device_info) -> str:
+    """이 파일의 표들을 조회할 키 / The key into the tables in this file.
+
+    RS-485 계량기의 device_type 은 접미사 없는 "energy" 이고, 종류는 device_id
+    (예: "bestin_energy_electric_total") 에만 있습니다. iPark 앱의 에너지 값은
+    device_type 이 이미 "energy:mineelec" 형태이므로 device_id 에서 다시 만들면
+    안 됩니다 (v1.4.10 에서 고친 "1:mine:elec" 버그).
+
+    An RS-485 meter's device_type is a bare "energy"; which meter it is lives
+    only in its device_id (e.g. "bestin_energy_electric_total"). iPark app
+    energy readings already carry "energy:mineelec" as their device_type and
+    must not be rebuilt from the device_id (the "1:mine:elec" bug fixed in
+    v1.4.10). v1.4.10 through v1.4.21 used device_type for both, which left
+    RS-485 meters with no scaling, unit, device class or state class.
+    """
+    if device_info.device_type == "energy":
+        return device_info.device_id.split("_", 2)[2].replace("_", ":")
+    return device_info.device_type
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -226,14 +246,8 @@ class BestinSensor(BestinDevice, SensorEntity):
     def __init__(self, device, hub) -> None:
         """Initialize the sensor."""
         super().__init__(device, hub)
-        # device_type(예: "electric:total", "energy:mineelec")은 이미
-        # center.py/iparkapp.py에서 올바르게 만들어진 분류 키이므로,
-        # device_id에서 다시 뽑아낼 필요가 없습니다.
-        #
-        # device_type (e.g. "electric:total", "energy:mineelec") is already
-        # the correct classification key straight from center.py/iparkapp.py
-        # — no need to re-derive it from device_id.
-        self._attr_icon = DEVICE_ICON.get(self._device_info.device_type)
+        self._key = _lookup_key(self._device_info)
+        self._attr_icon = DEVICE_ICON.get(self._key)
 
     @property
     def _no_reading(self) -> bool:
@@ -264,7 +278,7 @@ class BestinSensor(BestinDevice, SensorEntity):
         """
         if self._no_reading:
             return NO_READING
-        factor = VALUE_CONVERSION.get(self._device_info.device_type)
+        factor = VALUE_CONVERSION.get(self._key)
         if callable(factor):
             return factor(self._device_info.state, self.hub.wp_version)
         return self._device_info.state
@@ -274,26 +288,25 @@ class BestinSensor(BestinDevice, SensorEntity):
         """Return the class of the sensor."""
         if self._no_reading:
             return None
-        return DEVICE_CLASS.get(self._device_info.device_type)
+        return DEVICE_CLASS.get(self._key)
 
     @property
     def native_unit_of_measurement(self):
         """Return the unit of measurement of this sensor."""
         if self._no_reading:
             return None
-        return DEVICE_UNIT.get(self._device_info.device_type)
+        return DEVICE_UNIT.get(self._key)
 
     @property
     def state_class(self):
         """Type of this sensor state."""
         if self._no_reading:
             return None
-        device_type = self._device_info.device_type
-        if device_type in TOTAL_INCREASING_TYPES:
+        if self._key in TOTAL_INCREASING_TYPES:
             return "total_increasing"
-        if device_type in TOTAL_TYPES:
+        if self._key in TOTAL_TYPES:
             return "total"
-        if device_type in MEASUREMENT_TYPES:
+        if self._key in MEASUREMENT_TYPES:
             return "measurement"
         return None
 
@@ -302,4 +315,4 @@ class BestinSensor(BestinDevice, SensorEntity):
         """Number of decimals HA should show by default."""
         if self._no_reading:
             return None
-        return SUGGESTED_PRECISION.get(self._device_info.device_type)
+        return SUGGESTED_PRECISION.get(self._key)

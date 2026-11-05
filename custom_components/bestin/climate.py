@@ -26,6 +26,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .const import CONF_VERSION, LOGGER, NEW_CLIMATE
 from .device import BestinDevice
 from .hub import BestinHub
+from .iparkapp_const import SMART_HOME_APP
 
 
 async def async_setup_entry(
@@ -311,6 +312,7 @@ class BestinClimate(BestinDevice, RestoreEntity, ClimateEntity):
         없습니다.
         The iparkapp cloud server stores integer setpoints only (verified by
         live probe — sending 22.5 echoes back as 22). Advertising 1.0 here
-        keeps the HA UI honest. RS-485 / HDC paths are unaffected.
+        keeps the HA UI honest. RS-485 / HDC paths are unaffected. The HDC API
+        also has a ``version``, so ``_version_exists`` cannot tell them apart.
         """
-        return 1.0 if self._version_exists else 0.5
+        return 1.0 if self.hub.cntr_version == SMART_HOME_APP else 0.5

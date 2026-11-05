@@ -1,15 +1,11 @@
 """BESTIN 바이너리 센서 플랫폼 — Binary sensor platform for BESTIN.
 
-도어락처럼 '잠김/해제' 만 노출되는 장치를 위한 플랫폼입니다.
-v1.4.1 까지 도어락은 ``switch`` 로 노출되어 사용자가 토글을 시도해도 게이트웨이가
-명령을 무시하는 (또는 검증되지 않은) 문제가 있었습니다. v1.4.2 부터 도어락은
-``binary_sensor`` 로 등록되며 상태만 표시합니다.
+iPark 앱 게이트웨이의 도어락과 외출 모드처럼 상태만 노출되는 장치를 위한
+플랫폼입니다. RS-485 와 클라우드의 도어락은 ``switch`` 입니다.
 
-Used for read-only state devices like doorlocks. Up through v1.4.1 the doorlock
-was registered as a ``switch``, which let users toggle a UI control that the
-gateway either ignored (iPark App / center) or handled with an unverified RS-485
-packet (controller). v1.4.2 registers it as a ``binary_sensor`` so the UI shows
-locked/unlocked state without offering a control surface that doesn't work.
+Used for read-only state devices on the iPark app gateway: the door lock, which
+that app has no control endpoint for, and away mode. On RS-485 and cloud the door
+lock is a ``switch``.
 """
 
 from __future__ import annotations

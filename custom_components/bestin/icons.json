@@ -2,6 +2,7 @@
   "entity": {
     "climate": {
       "thermostat": {
+        "default": "mdi:thermostat-box",
         "state_attributes": {
           "preset_mode": {
             "default": "mdi:thermostat",

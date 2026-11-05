@@ -88,7 +88,7 @@ DEVICE_PLATFORM_MAP = {
     "outlet:standbycut": Platform.SWITCH.value,
     "outlet:powercons": Platform.SENSOR.value,
     "energy": Platform.SENSOR.value,
-    "doorlock": Platform.BINARY_SENSOR.value,
+    "doorlock": Platform.SWITCH.value,
     "elevator": Platform.SWITCH.value,
     "elevator:direction": Platform.SENSOR.value,
     "elevator:floor": Platform.SENSOR.value,
@@ -105,17 +105,20 @@ DEVICE_PLATFORM_MAP = {
     "electric": Platform.SWITCH.value,
     "electric:standbycut": Platform.SWITCH.value,
     "gas": Platform.SWITCH.value,
-    # 도어락은 '잠김/해제' 상태만 정확히 노출됩니다. iPark 앱 게이트웨이는 제어
-    # 명령을 지원하지 않고, RS-485 게이트웨이의 제어 패킷도 검증되지 않았습니다.
-    # Doorlock state is only reliably reported, not controlled. The iPark App
-    # gateway exposes no control endpoint, and the RS-485 doorlock packet is
-    # unverified — so this is safest as a binary_sensor (locked / unlocked).
-    #
     # 'heatsource' (unit_cnt 를 초과해 응답되던 추가 난방 온도 값) 는 v1.4.11
     # 에서 완전히 제거되었습니다 — 아래 ENERGY_FRIENDLY_LABELS 주석 참고.
     # 'heatsource' (the extra heat reading the wallpad reports past
     # ``status_map.unit_cnt``) was dropped entirely in v1.4.11 — see the
     # ENERGY_FRIENDLY_LABELS comment below for why.
+}
+
+# iPark 앱에는 도어락 제어 경로가 없으므로 이 게이트웨이에서만 읽기 전용입니다.
+# RS-485 와 클라우드는 포크 이전과 같이 switch 입니다.
+# The iPark app has no door lock control endpoint, so the door lock is read-only
+# on that gateway only. RS-485 and cloud keep the pre-fork switch.
+IPARKAPP_PLATFORM_MAP = {
+    **DEVICE_PLATFORM_MAP,
+    "doorlock": Platform.BINARY_SENSOR.value,
 }
 
 # 친근한 표시명 — Friendly display names for HA entities. The internal

@@ -57,8 +57,8 @@ from homeassistant.helpers.event import (
 
 from .const import (
     BRAND_PREFIX,
-    DEVICE_PLATFORM_MAP,
     ENERGY_FRIENDLY_LABELS,
+    IPARKAPP_PLATFORM_MAP,
     LOGGER,
     MAIN_DEVICES,
     PLATFORM_SIGNAL_MAP,
@@ -779,8 +779,8 @@ class BestinIparkAppAPI:
             )
             self.devices[full_device_id] = DeviceProfile(
                 enqueue_command=self.enqueue_command,
-                domain=DEVICE_PLATFORM_MAP.get(
-                    device_type_lookup, DEVICE_PLATFORM_MAP.get(device_type, "sensor")
+                domain=IPARKAPP_PLATFORM_MAP.get(
+                    device_type_lookup, IPARKAPP_PLATFORM_MAP.get(device_type, "sensor")
                 ),
                 unique_id=unique_id,
                 info=info,
@@ -795,7 +795,7 @@ class BestinIparkAppAPI:
         status: Any,
     ) -> None:
         """장치 상태를 갱신하고 필요시 콜백을 발생시킵니다 — Update device state."""
-        if device_type not in DEVICE_PLATFORM_MAP:
+        if device_type not in IPARKAPP_PLATFORM_MAP:
             LOGGER.debug("지원되지 않는 장치 유형 — Unsupported device type: %s", device_type)
             return
 
@@ -806,11 +806,11 @@ class BestinIparkAppAPI:
             looked_up = (
                 f"{device_type}:{''.join(filter(str.isalpha, unit_id))}"
             )
-            platform = DEVICE_PLATFORM_MAP.get(
-                looked_up, DEVICE_PLATFORM_MAP[device_type]
+            platform = IPARKAPP_PLATFORM_MAP.get(
+                looked_up, IPARKAPP_PLATFORM_MAP[device_type]
             )
         else:
-            platform = DEVICE_PLATFORM_MAP[device_type]
+            platform = IPARKAPP_PLATFORM_MAP[device_type]
 
         if device.unique_id not in self.entity_groups.get(platform, set()):
             signal = PLATFORM_SIGNAL_MAP[platform]
