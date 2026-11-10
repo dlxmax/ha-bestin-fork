@@ -135,9 +135,9 @@ def room_temp_sensor_key(room: int) -> str:
 # The WebView always issues device fetches from these pages; we mirror that.
 REFERER_PAGES: dict[str, str] = {
     "livinglight": "/webapp/xml_ctrl_light.php",
-    "light": "/webapp/xml_ctrl_M_light.php",
-    "electric": "/webapp/xml_ctrl_electric.php",
-    "temper": "/webapp/xml_ctrl_heat.php",
+    "light": "/webapp/xml_ctrl_M_light_view.php",
+    "electric": "/webapp/xml_ctrl_electric_view_new.php",
+    "temper": "/webapp/xml_ctrl_heat_view.php",
     "gas": "/webapp/xml_ctrl_gas.php",
     "ventil": "/webapp/xml_ctrl_fan.php",
     "mode": "/webapp/xml_ctrl_goout.php",
@@ -287,3 +287,17 @@ def normalize_status(value: str) -> Any:
     if v in ("off", "closed", "close", "unset", "occupied"):
         return False
     return v
+
+
+def outlet_power(value: str | None) -> bool | None:
+    """콘센트 전원 / Outlet power from ``unit_status``.
+
+    "on" / "off" 또는 "<대기전력 차단>/<전원>" (예: "unset/on"). 모르는 값은
+    None 이에요. 예전에는 "unset/on" 이 그대로 문자열로 남아 늘 켜짐으로
+    보였어요 (#3).
+    "on" / "off", or "<standby cut>/<power>" such as "unset/on". Unknown
+    values give None. "unset/on" used to stay a truthy string, so the outlet
+    always showed on (#3).
+    """
+    power = (value or "").strip().lower().rsplit("/", 1)[-1]
+    return {"on": True, "off": False}.get(power)

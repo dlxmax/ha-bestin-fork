@@ -88,6 +88,7 @@ from .iparkapp_const import (
     LOGIN_DATA_PATH,
     LOGIN_LANDING_PATH,
     REFERER_PAGES,
+    outlet_power,
     RESULT_ERRORS_FATAL,
     RESULT_OK,
     ROOM_PROBE_RANGE,
@@ -1200,9 +1201,9 @@ class BestinIparkAppAPI:
             "req_name": cls.req_name,
             "req_action": "status",
         }
-        if cls.unit_pattern is not None and "{n}" not in cls.unit_pattern:
-            # static patterns: gas1 / ventil / null
-            params["req_unit_num"] = cls.unit_pattern
+        # 웹앱은 상태 조회에 req_unit_num 을 보내지 않아요 (난방 roomN 만 예외).
+        # The web app sends no req_unit_num on status polls, except heating's
+        # roomN (found by cleverk2000-code in web app captures, #3).
         if cls.key == "temper" and room is not None:
             params["req_unit_num"] = make_unit_id(cls, room)
         if cls.room_scoped and room is not None:
@@ -1368,6 +1369,23 @@ class BestinIparkAppAPI:
 
         # 기본적으로는 정규화된 boolean/문자열 — Default: normalised value.
         value: Any = normalize_status(unit_status)
+        if cls.key == "electric":
+            # 일부 단지의 콘센트는 "unset/on" 처럼 대기전력 차단/전원 두 값을
+            # 함께 보내요. 오른쪽이 전원이에요.
+            # Some complexes send outlets as "<standby cut>/<power>", e.g.
+            # "unset/on". The right-hand part is the power (#3, found by
+            # cleverk2000-code in web app captures).
+            value = outlet_power(unit_status)
+            if value is None:
+                LOGGER.debug(
+                    "알 수 없는 콘센트 상태 / Unknown outlet status "
+                    "(room=%s unit=%s): %r", device_number, unit_num, unit_status,
+                )
+                return
+        elif cls.key == "doorlock":
+            # "ing" 등 모르는 값은 None (알 수 없음) 으로 둬요.
+            # Unknown values such as "ing" stay None (unknown), not unlocked.
+            value = value if isinstance(value, bool) else None
         # 난방은 ``mode/setpoint/current`` 형식의 슬래시 문자열입니다.
         # Heat encodes status as ``mode/setpoint/current`` joined with '/'.
         # Climate 엔티티가 읽는 키 (ATTR_HVAC_MODE 등) 와 정확히 일치해야 합니다.
@@ -1620,6 +1638,8 @@ class BestinIparkAppAPI:
         if device_type == "temper":
             self._wake_thermostat_poll(room_id)
             preset = _extract_preset_mode(kwargs)
+            temper_id = f"{BRAND_PREFIX}_temper_{room_id}"
+            before = self._snapshot_state(temper_id)
             if preset is not None:
                 profile = self.duty_cycle.set_preset(room_id, preset)
                 # 즉시 UI 반영 — optimistic update for snappy preset feedback.
@@ -1627,9 +1647,10 @@ class BestinIparkAppAPI:
                 # passthrough preset (none) → 서버에 직접 setpoint+모드 송신
                 # 'none' preset → push canonical setpoint straight to server
                 if profile.cycle_period_s == 0:
-                    await self.send_temper_raw_command(
+                    ok = await self.send_temper_raw_command(
                         room_id, f"on/{profile.canonical_setpoint_c:g}"
                     )
+                    self._check_accepted(ok, temper_id, before, "temper")
                 return
 
             # OFF 감지 — climate.py 가 "off/<temp>" 를 보낼 때 setpoint 추출
@@ -1650,7 +1671,8 @@ class BestinIparkAppAPI:
                         else 22.0
                     )
                 self._optimistic_temper_state(room_id, **{ATTR_HVAC_MODE: HVACMode.OFF})
-                await self.send_temper_raw_command(room_id, f"off/{target:g}")
+                ok = await self.send_temper_raw_command(room_id, f"off/{target:g}")
+                self._check_accepted(ok, temper_id, before, "temper")
                 return
 
             target = _extract_temper_setpoint(value, kwargs)
@@ -1673,7 +1695,8 @@ class BestinIparkAppAPI:
                 # 듀티 사이클 비활성 — 서버에 직접 송신 (기존 동작)
                 # Duty-cycle inactive — pass straight through to the server.
                 self.duty_cycle.set_setpoint(room_id, target)
-                await self.send_temper_raw_command(room_id, f"on/{target:g}")
+                ok = await self.send_temper_raw_command(room_id, f"on/{target:g}")
+                self._check_accepted(ok, temper_id, before, "temper")
                 return
 
         cls = DEVICE_CLASSES[device_type]
@@ -1689,10 +1712,11 @@ class BestinIparkAppAPI:
         # percentage) or ``enqueue_command("on" / "off")``; in both cases
         # we forward whichever value we have as the ctrl_action.
         if device_type == "ventil":
-            self._optimistic_state(
-                f"{BRAND_PREFIX}_ventil_1", _predict_ventil_state(value)
-            )
-            await self._request_control(cls, "ventil", value, room_id)
+            ventil_id = f"{BRAND_PREFIX}_ventil_1"
+            before = self._snapshot_state(ventil_id)
+            self._optimistic_state(ventil_id, _predict_ventil_state(value))
+            ok = await self._request_control(cls, "ventil", value, room_id)
+            self._check_accepted(ok, ventil_id, before, "ventil")
             return
 
         unit_id = (
@@ -1710,15 +1734,38 @@ class BestinIparkAppAPI:
         # of the ~1.7 s server round-trip; ``_request_control``'s echo path
         # corrects any bad guess on the response.
         predicted = _predict_scalar_state(value)
+        full_id = (
+            f"{BRAND_PREFIX}_{device_type}_{room_id}"
+            + (f"_{pos_id}" if pos_id else "")
+        )
+        before = self._snapshot_state(full_id)
         if predicted is not None:
-            full_id = (
-                f"{BRAND_PREFIX}_{device_type}_{room_id}"
-                + (f"_{pos_id}" if pos_id else "")
-            )
             self._optimistic_state(full_id, predicted)
-        await self._request_control(cls, unit_id, value, room_id)
+        ok = await self._request_control(cls, unit_id, value, room_id)
+        self._check_accepted(ok, full_id, before, device_type)
 
-    async def send_temper_raw_command(self, room: int, ctrl_action: str) -> None:
+    def _check_accepted(
+        self, ok: bool, full_device_id: str, previous: Any, device_type: str
+    ) -> None:
+        """거부되면 되돌리고 오류를 보여 줘요 / On rejection, revert and raise.
+
+        예전에는 스위치가 바뀌었다가 다음 응답에서 조용히 돌아갔어요. 이제
+        바로 되돌리고 HA 화면에 오류를 띄워요 (#3, cleverk2000-code 제안).
+        The switch used to flip and then silently flip back on the next
+        poll. Now it reverts at once and HA shows an error (#3, suggested by
+        cleverk2000-code).
+        """
+        if ok:
+            return
+        self._revert_state(full_device_id, previous)
+        from homeassistant.exceptions import HomeAssistantError
+
+        raise HomeAssistantError(
+            f"서버가 {device_type} 명령을 거부했어요 / "
+            f"The server rejected the {device_type} command"
+        )
+
+    async def send_temper_raw_command(self, room: int, ctrl_action: str) -> bool:
         """듀티 사이클 컨트롤러용 저수준 호출 — Low-level helper used by the duty-cycle controller.
 
         Bypasses the normal enqueue / duty-cycle-routing logic so the
@@ -1727,7 +1774,7 @@ class BestinIparkAppAPI:
         ``req_ctrl_action``.
         """
         cls = DEVICE_CLASSES["temper"]
-        await self._request_control(cls, f"room{room}", ctrl_action, room)
+        return await self._request_control(cls, f"room{room}", ctrl_action, room)
 
     async def _request_control(
         self,
@@ -1735,8 +1782,11 @@ class BestinIparkAppAPI:
         unit_id: str,
         value: Any,
         room_id: int,
-    ) -> None:
-        """제어 요청을 전송합니다 — Send a control request."""
+    ) -> bool:
+        """제어 요청을 전송합니다 — Send a control request.
+
+        서버가 받아들이면 True / True when the server accepted it.
+        """
         params: dict[str, str | int] = {
             "req_name": cls.req_name,
             "req_action": "control",
@@ -1780,10 +1830,24 @@ class BestinIparkAppAPI:
                     info.get("unit_status", ""),
                     info,
                 )
-        else:
-            LOGGER.warning(
-                "제어 실패 — %s %s=%s result=%s", cls.key, unit_id, value, result,
-            )
+            return True
+        LOGGER.warning(
+            "제어 실패 — %s %s=%s result=%s", cls.key, unit_id, value, result,
+        )
+        return False
+
+    def _snapshot_state(self, full_device_id: str) -> Any:
+        """즉시 반영 전 상태 / The state before an optimistic update."""
+        device = self.devices.get(full_device_id)
+        return None if device is None else device.info.state
+
+    def _revert_state(self, full_device_id: str, previous: Any) -> None:
+        """거부된 명령의 즉시 반영을 되돌려요 / Undo a rejected optimistic update."""
+        device = self.devices.get(full_device_id)
+        if device is None or previous is None:
+            return
+        device.info.state = previous
+        device.update_callbacks()
 
 
 def _predict_scalar_state(value: Any) -> Any:

@@ -90,9 +90,13 @@ class BestinBinarySensor(BestinDevice, BinarySensorEntity):
         # renders a generic on/off binary sensor.
 
     @property
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
         """Return True when the underlying state is truthy."""
         state = self._device_info.state
+        if state is None:
+            # 모르는 상태 (예: 도어락 "ing") 는 알 수 없음으로 보여요.
+            # An unknown state (such as doorlock "ing") shows as unknown.
+            return None
         if isinstance(state, dict):
             # 일부 게이트웨이는 dict 로 상태를 보냅니다 — some gateways wrap state.
             return bool(state.get("state") or state.get("value") or state.get("is_on"))
