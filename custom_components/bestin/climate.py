@@ -198,11 +198,17 @@ class BestinClimate(BestinDevice, RestoreEntity, ClimateEntity):
         """Return the list of available hvac operation modes."""
         return self._hvac_modes
 
+    # TURN_ON / TURN_OFF 를 지원한다고 알리면서 아무것도 하지 않았습니다.
+    # 난방 켜기와 끄기로 보냅니다 (laz- 의 포크).
+    # These were advertised via TURN_ON / TURN_OFF but did nothing; they now
+    # set heat or off (from laz-'s fork).
     async def async_turn_on(self) -> None:
         """Turn the entity on."""
+        await self.async_set_hvac_mode(HVACMode.HEAT)
 
     async def async_turn_off(self) -> None:
         """Turn the entity off."""
+        await self.async_set_hvac_mode(HVACMode.OFF)
 
     async def async_set_hvac_mode(self, hvac_mode: str) -> None:
         """Set new target hvac mode."""

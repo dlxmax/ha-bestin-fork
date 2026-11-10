@@ -119,6 +119,11 @@ class BestinController:
         if self.tasks:
             for task in self.tasks:
                 task.cancel()
+            # 작업이 정말 멈출 때까지 기다립니다. 안 그러면 언로드 뒤에도
+            # 잠깐 돌 수 있습니다 (laz- 의 포크).
+            # Wait until the tasks have really stopped, or they can run
+            # briefly after unload (from laz-'s fork).
+            await asyncio.gather(*self.tasks, return_exceptions=True)
             self.tasks = []
 
     @property
@@ -269,8 +274,13 @@ class BestinController:
         self, timestamp: int, room_id: int, pos_id: int, sub_type: str, value: bool
     ) -> bytearray:
         """Create a packet for gas control"""
+        # 밸브마다 머리 바이트가 다릅니다. 예전에는 늘 0x31 이라 gas_1 을
+        # 잠그면 첫 밸브에 명령이 갔습니다 (laz- 의 포크).
+        # Each valve has its own header. It was always 0x31, so closing
+        # gas_1 went to the first valve (from laz-'s fork).
+        header = 0x31 + (room_id if room_id in (0, 1) else 0)
         packet = bytearray(
-            [0x02, 0x31, 0x02, timestamp & 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            [0x02, header, 0x02, timestamp & 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
         )
         packet[-1] = self.calculate_checksum(packet)
         return packet
@@ -379,6 +389,11 @@ class BestinController:
         unique_id = f"{device_id}{uid_suffix}"
 
         if device_id not in self.devices:
+            if device_type not in DEVICE_PLATFORM_MAP:
+                # 모르는 하위 종류는 KeyError 대신 건너뜁니다 (laz- 의 포크).
+                # Skip an unknown sub-type instead of a KeyError (laz-'s fork).
+                LOGGER.warning(f"Unknown device type '{device_type}', skipping")
+                return None
             device_info = DeviceInfo(
                 device_type=device_type,
                 name=device_name,
@@ -405,6 +420,8 @@ class BestinController:
         sub_states = state.items() if is_sub else [(None, state)]
         for sub_id, sub_state in sub_states:
             device = self.initial_device(device_id, sub_id, sub_state)
+            if device is None:
+                continue
 
             if device_type not in ["energy"] and sub_id and not sub_id.isdigit():
                 format_device = f"{device_type}:{''.join(filter(str.isalpha, sub_id))}"
@@ -461,7 +478,9 @@ class BestinController:
     
     def parse_gas(self, packet: bytearray) -> tuple[int, bool]:
         """Parse gas data from a packet"""
-        room_id = 0
+        # 0x31 은 gas_0, 0x32 (두 번째 밸브) 는 gas_1 입니다 (laz- 의 포크).
+        # 0x31 is gas_0, 0x32 (a second valve) is gas_1 (from laz-'s fork).
+        room_id = packet[1] - 0x31
         gas_state = bool(packet[5])
         return room_id, gas_state
     
@@ -612,8 +631,12 @@ class BestinController:
 
     def validate_response(self, packet: bytes, queue: dict):
         """Validate the response packet against the queued command"""
+        command_packet = queue.get("command_packet")
+        if command_packet is None:
+            # 명령을 아직 보내지 않았으면 맞춰 볼 것이 없습니다 (laz- 의 포크).
+            # Nothing sent yet, so nothing to match (from laz-'s fork).
+            return
         general_gateway = self.gateway_type == "General"
-        command_packet = queue["command_packet"]
         header_byte = command_packet[1]
 
         offset = 2 if general_gateway and len(command_packet) == 10 else 3
@@ -686,6 +709,7 @@ class BestinController:
         elif packet_len == 10 and command != 0x00:
             parser_mapping = {
                 0x31: (self.parse_gas, "gas"),
+                0x32: (self.parse_gas, "gas"),
                 0x41: (self.parse_doorlock, "doorlock"),
                 0x61: (self.parse_fan, "fan"),
             }
@@ -772,12 +796,23 @@ class BestinController:
         """Process incoming data"""
         while True:
             if not self.is_alive:
-                await asyncio.sleep(5)
+                # 예전에는 여기서 잠만 자고 다시 연결하지 않아서, 한 번 실패한
+                # 연결은 HA 를 다시 시작할 때까지 죽어 있었습니다 (laz- 의 포크).
+                # reconnect() 가 대기 시간을 지킵니다.
+                # This used to only sleep, so a failed reconnect stayed dead
+                # until HA restarted (found in laz-'s fork). reconnect()
+                # keeps the backoff.
+                try:
+                    await self.connection.reconnect()
+                except Exception as ex:  # noqa: BLE001
+                    LOGGER.error(f"Reconnect failed: {ex!r}")
+                await asyncio.sleep(1)
                 continue
 
             try:
                 received_data = await self.receive_data()
                 if not received_data:
+                    await asyncio.sleep(0.1)
                     continue
 
                 checksum_valid = self.verify_checksum(received_data)

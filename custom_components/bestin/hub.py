@@ -47,8 +47,16 @@ class ConnectionManager:
         self.reconnect_attempts: int = 0
         self.last_reconnect_attempt: float = None
         self.next_attempt_time: float = None
+        # 받기와 보내기 작업이 동시에 다시 연결하지 않도록 합니다.
+        # Keeps the receive and send tasks from reconnecting at the same time.
+        self._reconnect_lock = asyncio.Lock()
 
         self.chunk_size = 64
+        # RS-485 버스는 쉬지 않고 패킷을 보내므로, 이만큼 조용하면 TCP 연결이
+        # 죽은 것입니다 (반쯤 끊긴 연결). laz- 의 포크에서 가져온 생각입니다.
+        # The RS-485 bus never goes quiet, so this much silence means the TCP
+        # session is dead (half-open). Idea from laz-'s fork.
+        self.read_timeout = 30.0
         self.constant_packet_length = 10
         self._parse_conn_str()
 
@@ -61,18 +69,27 @@ class ConnectionManager:
         else:
             raise ValueError("Invalid connection string")
 
-    async def connect(self, timeout: int = 5) -> None:
-        """Establish a connection."""
+    async def connect(self, timeout: int = 5) -> bool:
+        """Establish a connection.
+
+        실패하면 기록만 하고 False 를 돌려줍니다. 예전에는 여기서 reconnect()
+        를 불렀고, reconnect() 가 다시 connect() 를 불러 서로 되부르며 돌았습니다.
+        다시 시도는 받기 루프가 맡습니다.
+        On failure it logs and returns False. It used to call reconnect(),
+        which called connect() again, so the two recursed into each other.
+        Retrying is the receive loop's job.
+        """
         try:
             if self.is_serial:
                 await self._connect_serial()
             elif self.is_socket:
                 await self._connect_socket()
-            self.reconnect_attempts = 0
-            LOGGER.info("Connection established successfully.")
-        except Exception as e:
-            LOGGER.error(f"Connection failed: {e}")
-            await self.reconnect()
+        except Exception as e:  # noqa: BLE001
+            LOGGER.error(f"Connection failed: {e!r}")
+            await self._close_writer()
+            return False
+        LOGGER.info("Connection established successfully.")
+        return True
 
     async def _connect_serial(self) -> None:
         """Establish a serial connection."""
@@ -90,39 +107,64 @@ class ConnectionManager:
     def is_connected(self) -> bool:
         """Check if the connection is active."""
         try:
+            if self.writer is None:
+                return False
             if self.is_serial:
-                return self.writer is not None and not self.writer.transport.is_closing()
+                return not self.writer.transport.is_closing()
             elif self.is_socket:
-                return self.writer is not None
+                # 예전에는 writer 가 있기만 하면 연결된 것으로 봤습니다.
+                # Used to count any writer as connected, even a closed one.
+                return not self.writer.is_closing()
+            return False
         except Exception:
             return False
 
-    async def reconnect(self) -> bool | None:
-        """Attempt to reconnect with exponential backoff."""
-        if self.writer is not None:
-            self.writer.close()
+    async def _close_writer(self) -> None:
+        """Close the writer and forget it, so is_connected() turns False."""
+        writer, self.writer = self.writer, None
+        if writer is not None:
             try:
-                await self.writer.wait_closed()
-            except Exception:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:  # noqa: BLE001
                 pass
-            self.writer = None
 
-        current_time = time.time()
-        if self.next_attempt_time and current_time < self.next_attempt_time:
+    async def reconnect(self) -> bool:
+        """Attempt to reconnect with exponential backoff.
+
+        잠금으로 한 번에 하나만 돕니다. 대기 시간 전이면 바로 False 를
+        돌려주므로 부르는 쪽은 잠깐 쉬었다가 다시 부르면 됩니다.
+        One at a time under a lock. Before the backoff time is up it returns
+        False at once, so callers just pause and call again.
+        """
+        failed_writer = self.writer
+        async with self._reconnect_lock:
+            if self.writer is not failed_writer and self.is_connected():
+                # 기다리는 동안 다른 작업이 이미 다시 연결했습니다. 새 연결을
+                # 닫으면 안 됩니다.
+                # Another task reconnected while this one waited for the
+                # lock; closing that fresh connection would undo it.
+                return True
+            await self._close_writer()
+
+            current_time = time.time()
+            if self.next_attempt_time and current_time < self.next_attempt_time:
+                return False
+
+            self.reconnect_attempts += 1
+            delay = min(2 ** self.reconnect_attempts, 60) if self.last_reconnect_attempt else 1
+            self.last_reconnect_attempt = current_time
+            self.next_attempt_time = current_time + delay
+            LOGGER.info(f"Reconnection attempt {self.reconnect_attempts} after {delay} seconds delay...")
+
+            await asyncio.sleep(delay)
+            if await self.connect() and self.is_connected():
+                LOGGER.info(f"Successfully reconnected on attempt {self.reconnect_attempts}.")
+                self.reconnect_attempts = 0
+                self.last_reconnect_attempt = None
+                self.next_attempt_time = None
+                return True
             return False
-        
-        self.reconnect_attempts += 1
-        delay = min(2 ** self.reconnect_attempts, 60) if self.last_reconnect_attempt else 1
-        self.last_reconnect_attempt = current_time
-        self.next_attempt_time = current_time + delay
-        LOGGER.info(f"Reconnection attempt {self.reconnect_attempts} after {delay} seconds delay...")
-
-        await asyncio.sleep(delay)
-        await self.connect()
-        if self.is_connected():
-            LOGGER.info(f"Successfully reconnected on attempt {self.reconnect_attempts}.")
-            self.reconnect_attempts = 0
-            self.next_attempt_time = None
 
     async def send(self, packet: bytearray, interval: int) -> None:
         """Send a packet."""
@@ -137,14 +179,21 @@ class ConnectionManager:
     async def receive(self, size: int = 64) -> bytes | None:
         """Receive data."""
         try:
-            if self.chunk_size == size: 
-                return await self._receive_socket()
-            else:
-                return await self.reader.read(size)
+            if self.chunk_size == size:
+                return await asyncio.wait_for(self._receive_socket(), timeout=self.read_timeout)
+            data = await asyncio.wait_for(self.reader.read(size), timeout=self.read_timeout)
+            if not data:
+                raise ConnectionError("Connection closed by remote")
+            return data
         except asyncio.TimeoutError:
-            pass
+            if self.is_socket:
+                LOGGER.warning(
+                    "No RS-485 data for %.0f s, reconnecting", self.read_timeout
+                )
+                await self.reconnect()
+            return None
         except Exception as e:
-            LOGGER.error(f"Failed to receive packet data: {e}")
+            LOGGER.error(f"Failed to receive packet data: {e!r}")
             await self.reconnect()
             return None
 
@@ -166,24 +215,35 @@ class ConnectionManager:
                 while True:
                     initial_data = await self.reader.read(1)
                     if not initial_data:
-                        return b''
+                        # 상대가 연결을 닫았습니다. 예전에는 빈 값을 돌려줘서
+                        # 다시 연결하지 않고 끝없이 돌았습니다 (laz- 의 포크).
+                        # The far end closed the connection. Returning b''
+                        # here used to spin forever with no reconnect
+                        # (found in laz-'s fork).
+                        raise socket.error("Connection closed by remote")
                     packet += initial_data
                     if 0x02 in packet:
                         start_index = packet.index(0x02)
                         packet = packet[start_index:]
                         break
-                
+
                 packet += await recv_exactly(3 - len(packet))
-                
+
                 if (
-                    packet[1] not in [0x28, 0x31, 0x41, 0x42, 0x61, 0xD1]
+                    packet[1] not in [0x28, 0x31, 0x32, 0x41, 0x42, 0x61, 0xD1]
                     and packet[1] & 0xF0 != 0x50   # For AIO (0x51-0x55)
                     and packet[1] & 0x30 != 0x30   # For Gen2 (0x3F, 0x31-0x36)
                 ):
                     return b''
 
+                # 0x32 는 두 번째 가스 밸브로, 0x31 과 같은 10바이트 고정
+                # 길이입니다. 모르면 세 번째 바이트 (0x80 = 128) 를 길이로 읽어
+                # 뒤따르는 패킷 여럿을 삼켰습니다 (laz- 의 포크).
+                # 0x32 is a second gas valve with the same fixed 10-byte
+                # format as 0x31. Unknown, its third byte (0x80 = 128) was read
+                # as a length and swallowed the packets after it (laz-'s fork).
                 if (
-                    (packet[1] == 0x31 and packet[2] in [0x00, 0x01, 0x02, 0x80, 0x81, 0x82])
+                    (packet[1] in (0x31, 0x32) and packet[2] in [0x00, 0x01, 0x02, 0x80, 0x81, 0x82])
                     or packet[1] == 0x61
                     or packet[1] == 0x17  # For AIO
                 ):
@@ -201,21 +261,18 @@ class ConnectionManager:
                     return packet[:packet_length]
 
         except socket.error as e:
+            # receive() 가 다시 연결합니다. 여기서도 하면 두 번 하게 됩니다.
+            # receive() reconnects; doing it here too would do it twice.
             LOGGER.error(f"Socket error: {e}")
-            await self.reconnect()
-        
+            raise
+
         return b''
-    
+
     async def close(self) -> None:
         """Close the connection."""
         if self.writer:
             LOGGER.info("Connection closed.")
-            self.writer.close()
-            try:
-                await self.writer.wait_closed()
-            except Exception:
-                pass
-            self.writer = None
+            await self._close_writer()
 
 
 class BestinHub:
@@ -365,6 +422,10 @@ class BestinHub:
                 "Timed out waiting for gateway data, defaulting to General mode"
             )
             self.gateway_mode = ("General", None)
+        except OSError:
+            # 연결이 끊겼습니다. 설정이 나중에 다시 시도하도록 그대로 올립니다.
+            # The connection dropped; pass it up so setup retries later.
+            raise
         except Exception as e:
             problematic_packet = locals().get("received_data", None)
             raise RuntimeError(
@@ -467,6 +528,9 @@ class BestinHub:
                 self.async_add_device_callback,
             )
             await self.api.start()
+        except OSError:
+            self.api = None
+            raise
         except Exception as ex:
             self.api = None
             raise RuntimeError(

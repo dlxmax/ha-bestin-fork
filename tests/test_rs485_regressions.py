@@ -316,6 +316,165 @@ try:
 except Exception as ex:  # noqa: BLE001
     check("new RS-485 install finishes setup", repr(ex), None)
 
+# Fixes found in laz-'s fork (github.com/laz-/ha-bestin).
+CM = hub_module.ConnectionManager
+
+
+class _Writer:
+    def __init__(self):
+        self.closed = False
+
+    def is_closing(self):
+        return self.closed
+
+    def close(self):
+        self.closed = True
+
+    async def wait_closed(self):
+        pass
+
+
+def _socket_cm(data=b"", eof=False):
+    cm = CM("10.0.0.1:8899")
+    cm.reader = asyncio.StreamReader()
+    if data:
+        cm.reader.feed_data(data)
+    if eof:
+        cm.reader.feed_eof()
+    cm.writer = _Writer()
+    cm.reconnects = 0
+
+    async def fake_reconnect():
+        cm.reconnects += 1
+        await cm._close_writer()
+        return False
+
+    cm.reconnect = fake_reconnect
+    return cm
+
+
+async def connection_cases():
+    # EOF used to return b'' forever with no reconnect.
+    cm = _socket_cm(eof=True)
+    got = await cm.receive()
+    check("EOF reconnects", (got, cm.reconnects, cm.is_connected()), (None, 1, False))
+
+    # A half-open socket used to block forever.
+    cm = _socket_cm()
+    cm.read_timeout = 0.05
+    got = await cm.receive()
+    check("silence times out and reconnects", (got, cm.reconnects), (None, 1))
+
+    # A closed socket writer no longer counts as connected.
+    cm = _socket_cm()
+    cm.writer.closed = True
+    check("closed writer is not connected", cm.is_connected(), False)
+
+    # 0x32 (second gas valve) is a fixed 10-byte packet, not 0x80 = 128 bytes.
+    gas2 = bytearray([0x02, 0x32, 0x80, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00])
+    therm = bytearray.fromhex("02281091000101170100f800000000ff")
+    cm = _socket_cm(bytes(gas2) + bytes(therm))
+    first = await cm.receive()
+    second = await cm.receive()
+    check("0x32 framed as 10 bytes", (len(first), first[1]), (10, 0x32))
+    check("packet after 0x32 not swallowed", (len(second), second[1]), (16, 0x28))
+
+    # Two tasks fail at once: the second must not close what the first reopened.
+    cm = CM("10.0.0.1:8899")
+    old = _Writer()
+    cm.writer = old
+    opened = []
+
+    async def fake_connect(timeout=5):
+        await asyncio.sleep(0.01)
+        cm.writer = _Writer()
+        opened.append(cm.writer)
+        return True
+
+    cm.connect = fake_connect
+    cm.last_reconnect_attempt = None
+    results = await asyncio.gather(cm.reconnect(), cm.reconnect())
+    check(
+        "concurrent reconnect opens once and keeps it",
+        (results, len(opened), cm.writer is opened[0], cm.is_connected()),
+        ([True, True], 1, True, True),
+    )
+
+    # A refused connection returns False instead of recursing into reconnect().
+    cm = CM("10.0.0.1:8899")
+
+    async def refuse():
+        raise ConnectionRefusedError("refused")
+
+    cm._connect_socket = refuse
+    check("refused connect returns False", await cm.connect(), False)
+
+
+asyncio.run(connection_cases())
+
+ctrl = object.__new__(controller.BestinController)
+ctrl.gateway_type = "General"
+ctrl.hub_id = "hub"
+ctrl.devices = {}
+ctrl.entity_groups = {}
+ctrl.timestamp = 0
+ctrl.add_device_callback = lambda signal, device: None
+for header, state in ((0x31, 1), (0x32, 0)):
+    packet = bytearray([0x02, header, 0x80, 0x05, 0x00, state, 0x00, 0x00, 0x00, 0x00])
+    packet[-1] = ctrl.calculate_checksum(packet)
+    ctrl.handle_device_packet(packet)
+check(
+    "two gas valves become gas_0 and gas_1",
+    {d: p.info.state for d, p in ctrl.devices.items() if "gas" in d},
+    {"bestin_gas_0": True, "bestin_gas_1": False},
+)
+check("gas_0 command goes to 0x31", ctrl.make_gas_packet(1, 0, 0, None, False)[1], 0x31)
+check("gas_1 command goes to 0x32", ctrl.make_gas_packet(1, 1, 0, None, False)[1], 0x32)
+
+queue_item = {"command_packet": None}
+ctrl.validate_response(bytearray(10), queue_item)
+check("reply before any command is ignored", "acknowledgment" in queue_item, False)
+
+check("unknown sub-type is skipped", ctrl.initial_device("light_1", "sparkle", 1), None)
+
+
+async def climate_cases():
+    sent = []
+    entity = object.__new__(climate.BestinClimate)
+    entity._version_exists = False
+    entity._hvac_modes = ["off", "heat"]
+
+    async def enqueue_command(**kwargs):
+        sent.append(kwargs)
+
+    entity.enqueue_command = enqueue_command
+    await entity.async_turn_on()
+    await entity.async_turn_off()
+    check("thermostat turn on and off send commands", sent, [{"mode": True}, {"mode": False}])
+
+
+asyncio.run(climate_cases())
+
+
+async def stop_waits():
+    ctrl2 = object.__new__(controller.BestinController)
+    finished = []
+
+    async def worker():
+        try:
+            await asyncio.sleep(10)
+        finally:
+            await asyncio.sleep(0)
+            finished.append(True)
+
+    ctrl2.tasks = [asyncio.get_running_loop().create_task(worker())]
+    await asyncio.sleep(0)
+    await ctrl2.stop()
+    check("stop waits for tasks to end", finished, [True])
+
+
+asyncio.run(stop_waits())
+
 print()
 print("FAILURES:", failures if failures else "none")
 sys.exit(1 if failures else 0)

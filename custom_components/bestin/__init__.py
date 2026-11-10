@@ -487,15 +487,28 @@ async def _async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await _async_setup_iparkapp(hass, entry, hub)
     elif CONF_SESSION not in entry.data:
         try:
-            await asyncio.wait_for(hub.connect(), timeout=5)
+            connected = await asyncio.wait_for(hub.connect(), timeout=5)
         except asyncio.TimeoutError as ex:
             _remember_failed_gateway(hass, entry.entry_id, hub)
             await hub.async_close()
             hass.data[DOMAIN].pop(entry.entry_id)
             raise ConfigEntryNotReady(f"Connection to {hub.hub_id} timed out.") from ex
+        if not connected:
+            _remember_failed_gateway(hass, entry.entry_id, hub)
+            await hub.async_close()
+            hass.data[DOMAIN].pop(entry.entry_id)
+            raise ConfigEntryNotReady(f"Could not connect to {hub.hub_id}.")
 
         LOGGER.info("Start serial initialization.")
-        await hub.async_initialize_serial()
+        try:
+            await hub.async_initialize_serial()
+        except OSError as ex:
+            # 게이트웨이 확인 중에 연결이 끊겼습니다. 나중에 다시 시도합니다.
+            # The connection dropped while detecting the gateway; retry later.
+            _remember_failed_gateway(hass, entry.entry_id, hub)
+            await hub.async_close()
+            hass.data[DOMAIN].pop(entry.entry_id)
+            raise ConfigEntryNotReady(f"Connection to {hub.hub_id} dropped: {ex!r}") from ex
         _register_hub_device(hass, entry, hub)
     else:
         _register_hub_device(hass, entry, hub)
