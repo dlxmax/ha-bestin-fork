@@ -41,6 +41,9 @@
 원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 에는 오픈 소스 라이선스가 없고, 원작자는 "Copyright (c) 2026 lunDreame. All rights reserved." 라고만 밝히고 있습니다. 그래서 본 포크에도 라이선스 파일이 없습니다.  
 *The upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) has no open source license; its author states only "Copyright (c) 2026 lunDreame. All rights reserved." This fork therefore has no license file either.*
 
+iPark 스마트홈 앱 옵션과 이후 변경 사항: Copyright (c) 2026 dlxmax.  
+*The iPark Smarthome App option and later changes: Copyright (c) 2026 dlxmax.*
+
 ## 감사의 말 / Acknowledgments
 
 - [@lunDreame](https://github.com/lunDreame) — 원본 통합 작성자.<br>*Original integration author.*

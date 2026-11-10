@@ -19,7 +19,6 @@
 - [기능 / Features](#기능--features)
 - [문제 신고 / Reporting a problem](#문제-신고--reporting-a-problem)
 - [기여 / Contributing](#기여--contributing)
-- [라이선스 / License](#라이선스--license)
 
 ## 프로젝트 소개 / About
 
@@ -147,7 +146,3 @@ logger:
 - 월패드 버전 3.0 과 시리얼 (USB-to-485) 통신은 아직 테스트되지 않았습니다. / *Wallpad 3.0 and serial (USB-to-485) communication are not tested yet.*
 - 좋은 아이디어가 있으면 [Pull requests](https://github.com/dlxmax/ha-bestin-fork/pulls) 환영합니다. / *Got a better idea? Open a [pull request](https://github.com/dlxmax/ha-bestin-fork/pulls).*
 - 본 통합 사용으로 발생하는 문제에 대해 책임지지 않습니다. / *Use at your own risk; no warranty is provided.*
-
-## 라이선스 / License
-
-원본 저작권 표시 / *Upstream copyright notice:* Copyright (c) 2026 lunDreame. All rights reserved. 자세한 내용은 [ABOUT.md](./ABOUT.md#라이선스--license) 참조. / *See [ABOUT.md](./ABOUT.md#라이선스--license).*
