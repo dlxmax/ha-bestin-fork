@@ -379,6 +379,30 @@ async def connection_cases():
     check("0x32 framed as 10 bytes", (len(first), first[1]), (10, 0x32))
     check("packet after 0x32 not swallowed", (len(second), second[1]), (16, 0x28))
 
+    # Real gas valve packets captured by Kevrik (https://github.com/Kevrik/ha-bestin),
+    # including the 02 31 01 / 02 31 81 kind that upstream framed wrongly.
+    real_gas = [
+        bytes.fromhex(h) for h in (
+            "02310009000000000042",
+            "02318009800000002062",
+            "0231010A000000002062",
+            "0231810A800000002062",
+        )
+    ]
+    cm = _socket_cm(b"".join(real_gas) + bytes(therm))
+    framed = [await cm.receive() for _ in range(len(real_gas) + 1)]
+    check(
+        "real gas packets framed one by one",
+        [bytes(p) for p in framed[:-1]],
+        real_gas,
+    )
+    check("packet after real gas packets not swallowed", (len(framed[-1]), framed[-1][1]), (16, 0x28))
+    check(
+        "real gas packets pass checksum",
+        [controller.BestinController.verify_checksum(None, p) for p in real_gas],
+        [True] * 4,
+    )
+
     # Two tasks fail at once: the second must not close what the first reopened.
     cm = CM("10.0.0.1:8899")
     old = _Writer()

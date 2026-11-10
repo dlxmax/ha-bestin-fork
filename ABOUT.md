@@ -49,6 +49,7 @@ iPark 스마트홈 앱 옵션과 이후 변경 사항: Copyright (c) 2026 dlxmax
 - [@lunDreame](https://github.com/lunDreame) — 원본 통합 작성자.<br>*Original integration author.*
 - [@laz-](https://github.com/laz-): [포크](https://github.com/laz-/ha-bestin)에서 RS-485 연결이 끊긴 뒤 다시 연결하지 않던 문제, 두 번째 가스 밸브 (0x32), 온도조절기 켜기/끄기 등을 찾아 고쳤고, 본 포크가 이를 반영했습니다.<br>*Found and fixed, in [their fork](https://github.com/laz-/ha-bestin), the RS-485 connection that never came back after a drop, the second gas valve (0x32), thermostat turn on/off and more; this fork takes those fixes.*
 - [@pjb5592](https://github.com/pjb5592): [포크](https://github.com/pjb5592/ha-bestin)에서 로컬 환기 팬 속도 오류, 밝기 조절이 없는 Gen2 조명이 나타나지 않던 문제 등을 찾아 고쳤고, 본 포크가 이를 반영했습니다.<br>*Found and fixed, in [their fork](https://github.com/pjb5592/ha-bestin), a crash reading the local ventilation fan speed, Gen2 lights without dimming that never appeared, and more; this fork takes those fixes.*
+- [@Kevrik](https://github.com/Kevrik): [포크](https://github.com/Kevrik/ha-bestin)에 실제 가스 밸브 패킷을 남겨 주었고, 본 포크의 테스트가 이를 사용합니다.<br>*Shared real gas valve packet captures in [their fork](https://github.com/Kevrik/ha-bestin); this fork's tests use them.*
 - [Mobiletalk](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet) — 안드로이드 iPark 스마트홈 앱 개발사 (앱의 호출 패턴을 분석해 본 통합을 구현).<br>*Developer of the Android iPark Smarthome app (whose call pattern this fork mirrors).*
 
 ## 더 알아보기 / Learn more
