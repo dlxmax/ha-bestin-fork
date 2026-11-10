@@ -144,5 +144,6 @@ logger:
 ## 기여 / Contributing
 
 - 월패드 버전 3.0 과 시리얼 (USB-to-485) 통신은 아직 테스트되지 않았습니다. / *Wallpad 3.0 and serial (USB-to-485) communication are not tested yet.*
-- 좋은 아이디어가 있으면 [Pull requests](https://github.com/dlxmax/ha-bestin-fork/pulls) 환영합니다. / *Got a better idea? Open a [pull request](https://github.com/dlxmax/ha-bestin-fork/pulls).*
+- **[Pull request](https://github.com/dlxmax/ha-bestin-fork/pulls) 환영합니다.** 버그 수정, 새 기기, 다른 단지에서의 테스트 결과 모두 좋습니다. / ***[Pull requests](https://github.com/dlxmax/ha-bestin-fork/pulls) welcome.** Bug fixes, new devices and test results from other complexes are all useful.*
+- Pull request 를 보내면, 그 변경을 본 프로젝트에 포함해 배포하는 데 동의하는 것으로 봅니다. / *By opening a pull request, you agree that your change may be included and distributed in this project.*
 - 본 통합 사용으로 발생하는 문제에 대해 책임지지 않습니다. / *Use at your own risk; no warranty is provided.*
