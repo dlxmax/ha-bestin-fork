@@ -1,6 +1,9 @@
 {
   "domain": "bestin",
   "name": "BESTIN",
+  "after_dependencies": [
+    "http"
+  ],
   "codeowners": [
     "@dlxmax"
   ],

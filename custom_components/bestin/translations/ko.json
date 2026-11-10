@@ -21,7 +21,7 @@
                 "description": "{report}"
             },
             "center": {
-                "description": "각 섹션의 구성 방법은 [문서](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/center.md)를 참고해 주세요. / See the [documentation](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/center.md) for setup instructions.",
+                "description": "각 섹션의 구성 방법은 [문서]({center_guide_url})를 참고해 주세요. / See the [documentation]({center_guide_url}) for setup instructions.",
                 "data": {
                     "version": "버전 / Version"
                 }
@@ -93,7 +93,7 @@
             },
             "settings": {
                 "title": "사용자 옵션 조정 / Adjust User Options",
-                "description": "온도조절기 (난방) 는 표준 HA 프리셋 (Comfort / Eco / Sleep / Away / Vacation / Frost / Boost) 을 객실별로 지원합니다. iPark 스마트홈 앱 옵션의 경우 슬로우 듀티 사이클 (시간 비례 제어) 이 함께 적용됩니다. 야간 setback / 휴가 / 외출 자동화는 `blueprints/automation/bestin/` 의 HA Blueprint 3 개를 임포트해 사용하세요. 자세한 내용은 [iPark 스마트홈 앱 가이드](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#슬로우-듀티-사이클-제어--slow-duty-cycle-control) 참조. / Thermostats expose standard HA presets per-room. On the iPark Smarthome App option these also engage a software slow duty cycle (time-proportional control, not high-frequency PWM). Use the three importable HA Blueprints under `blueprints/automation/bestin/` for night setback / vacation / away schedules. See the [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#슬로우-듀티-사이클-제어--slow-duty-cycle-control) for details.\n\n객실 온도 센서 (선택, iPark 스마트홈 앱 전용): 앱을 통해서는 월패드 온도가 정수로 내림되어 오고, 월패드 센서는 실제보다 높게 읽는 경우가 많습니다. 방마다 HA 온도 센서를 고르면 온도조절기가 그 값을 표시하고 듀티 사이클 프리셋도 그 값으로 제어합니다. 월패드 값은 `wallpad_temperature` 속성으로 남습니다. 비워 두면 월패드 값을 그대로 씁니다. / Room temperature sensors (optional, iPark Smarthome App only): pick an HA sensor per room; the thermostat shows it and duty cycle presets control on it. Leave empty to use the wallpad.\n{rooms}",
+                "description": "온도조절기 (난방) 는 표준 HA 프리셋 (Comfort / Eco / Sleep / Away / Vacation / Frost / Boost) 을 객실별로 지원합니다. iPark 스마트홈 앱 옵션의 경우 슬로우 듀티 사이클 (시간 비례 제어) 이 함께 적용됩니다. 야간 setback / 휴가 / 외출 자동화는 `blueprints/automation/bestin/` 의 HA Blueprint 3 개를 임포트해 사용하세요. 자세한 내용은 [iPark 스마트홈 앱 가이드]({duty_cycle_guide_url}) 참조. / Thermostats expose standard HA presets per-room. On the iPark Smarthome App option these also engage a software slow duty cycle (time-proportional control, not high-frequency PWM). Use the three importable HA Blueprints under `blueprints/automation/bestin/` for night setback / vacation / away schedules. See the [iPark Smarthome App guide]({duty_cycle_guide_url}) for details.\n\n객실 온도 센서 (선택, iPark 스마트홈 앱 전용): 앱을 통해서는 월패드 온도가 정수로 내림되어 오고, 월패드 센서는 실제보다 높게 읽는 경우가 많습니다. 방마다 HA 온도 센서를 고르면 온도조절기가 그 값을 표시하고 듀티 사이클 프리셋도 그 값으로 제어합니다. 월패드 값은 `wallpad_temperature` 속성으로 남습니다. 비워 두면 월패드 값을 그대로 씁니다. / Room temperature sensors (optional, iPark Smarthome App only): pick an HA sensor per room; the thermostat shows it and duty cycle presets control on it. Leave empty to use the wallpad.\n{rooms}",
                 "data": {
                     "max_send_retry": "최대 전송 재시도 / Max Send Retry",
                     "packet_viewer": "패킷 뷰어 / Packet Viewer",

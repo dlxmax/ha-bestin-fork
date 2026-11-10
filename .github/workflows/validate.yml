@@ -11,8 +11,11 @@ jobs:
   validate-hacs:
     runs-on: "ubuntu-latest"
     steps:
-      - uses: "actions/checkout@v3"
+      - uses: "actions/checkout@v5"
       - name: HACS validation
         uses: "hacs/action@main"
         with:
           category: "integration"
+          # 원본에 오픈 소스 라이선스가 없어 본 포크에도 없습니다 (ABOUT.md 참조).
+          # Upstream has no open source license, so this fork has none either (see ABOUT.md).
+          ignore: "license"

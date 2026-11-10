@@ -70,6 +70,14 @@ from .iparkapp_const import (
 )
 
 
+# 번역 문자열에는 URL 을 넣을 수 없어 (hassfest) 자리 표시자로 넘깁니다.
+# hassfest does not allow URLs in translation strings, so they go in as placeholders.
+_GUIDE_BASE = "https://github.com/dlxmax/ha-bestin-fork/blob/main/guide"
+CENTER_GUIDE_URL = f"{_GUIDE_BASE}/center.md"
+DUTY_CYCLE_GUIDE_URL = (
+    f"{_GUIDE_BASE}/iparkapp.md#슬로우-듀티-사이클-제어--slow-duty-cycle-control"
+)
+
 class ConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for BESTIN."""
 
@@ -279,6 +287,7 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
                 })
             }),
             errors=errors,
+            description_placeholders={"center_guide_url": CENTER_GUIDE_URL},
         )
 
     async def async_step_center_v1(
@@ -694,7 +703,7 @@ class OptionsFlowHandler(OptionsFlow):
             step_id="settings",
             data_schema=self.get_data_schema(),
             errors=errors,
-            description_placeholders={"rooms": rooms},
+            description_placeholders={"rooms": rooms, "duty_cycle_guide_url": DUTY_CYCLE_GUIDE_URL},
         )
 
     def _diagnostics_link(self) -> str:

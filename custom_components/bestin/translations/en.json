@@ -21,7 +21,7 @@
                 "description": "{report}"
             },
             "center": {
-                "description": "Please refer to the [documentation](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/center.md) for instructions on configuring each section.",
+                "description": "Please refer to the [documentation]({center_guide_url}) for instructions on configuring each section.",
                 "data": {
                     "version": "Version"
                 }
@@ -93,7 +93,7 @@
             },
             "settings": {
                 "title": "Adjust User Options",
-                "description": "Thermostats expose the standard HA presets (Comfort / Eco / Sleep / Away / Vacation / Frost / Boost) per room. On the iPark Smarthome App option these also engage a software slow duty cycle (time-proportional control, not high-frequency PWM). Use the three importable HA Blueprints under `blueprints/automation/bestin/` for night setback / vacation / away schedules. See the [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#슬로우-듀티-사이클-제어--slow-duty-cycle-control) for details.\n\nRoom temperature sensors (optional, iPark Smarthome App only): through the app the wallpad's temperature arrives as whole degrees, rounded down, and the wall unit often reads high. Pick an HA temperature sensor for a room and its thermostat shows that sensor, and the duty cycle presets control on it. The wallpad's own reading stays available as the `wallpad_temperature` attribute. Leave a room empty to keep using the wallpad.\n{rooms}",
+                "description": "Thermostats expose the standard HA presets (Comfort / Eco / Sleep / Away / Vacation / Frost / Boost) per room. On the iPark Smarthome App option these also engage a software slow duty cycle (time-proportional control, not high-frequency PWM). Use the three importable HA Blueprints under `blueprints/automation/bestin/` for night setback / vacation / away schedules. See the [iPark Smarthome App guide]({duty_cycle_guide_url}) for details.\n\nRoom temperature sensors (optional, iPark Smarthome App only): through the app the wallpad's temperature arrives as whole degrees, rounded down, and the wall unit often reads high. Pick an HA temperature sensor for a room and its thermostat shows that sensor, and the duty cycle presets control on it. The wallpad's own reading stays available as the `wallpad_temperature` attribute. Leave a room empty to keep using the wallpad.\n{rooms}",
                 "data": {
                     "max_send_retry": "Max Send Retry",
                     "packet_viewer": "Packet Viewer",
