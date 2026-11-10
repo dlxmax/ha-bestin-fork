@@ -27,6 +27,7 @@ import json
 import re
 import time
 import xml.etree.ElementTree as ET
+from collections import deque
 from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Any, Callable
@@ -368,6 +369,15 @@ class BestinIparkAppAPI:
         # 15 min refresh interval).
         self._refresh_failures: int = 0
 
+        # v1.4.23: 진단용 기록입니다. 메모리에만 있고 로그 수준과 상관없이
+        # 늘 쌓이므로, 문제 신고에 디버그 로그를 따로 켤 필요가 없습니다.
+        # Diagnostics records (v1.4.23). Memory only, and always on whatever
+        # the log level, so a problem report needs no debug logging.
+        self._events: deque[dict[str, Any]] = deque(maxlen=300)
+        self._last_status: dict[str, dict[str, Any]] = {}
+        self._last_bad_reply: dict[str, str] = {}
+        self._last_login: str | None = None
+
     # ------------------------------------------------------------------
     # 라이프사이클 — Lifecycle
     # ------------------------------------------------------------------
@@ -569,6 +579,8 @@ class BestinIparkAppAPI:
                         f"Login reply was not JSON: {ex}"
                     ) from ex
                 ret = str(payload.get("ret", ""))
+                self._last_login = f"ret={ret} msg={payload.get('msg', '')}"
+                self._note("login", result=ret, error=None if ret == "success" else str(payload.get("msg", "")))
                 if ret != "success":
                     LOGGER.error(
                         "로그인 실패 — iParkApp login failed: %s", payload
@@ -588,6 +600,8 @@ class BestinIparkAppAPI:
                 LOGGER.debug("iParkApp login OK: %s", payload)
         except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as ex:
             LOGGER.error("로그인 네트워크 오류 — iParkApp login network error: %s", ex)
+            self._last_login = f"network error: {type(ex).__name__}: {ex}"
+            self._note("login", result="network_error", error=f"{type(ex).__name__}: {ex}")
             raise IparkAppConnectionError(
                 f"{type(ex).__name__}: {ex}" if str(ex) else type(ex).__name__
             ) from ex
@@ -649,6 +663,13 @@ class BestinIparkAppAPI:
             # The path alone does not say which device failed, so the
             # request values are logged too.
             detail = "".join(f" {key}={val}" for key, val in params.items())
+            self._note(
+                "http",
+                cls=str(params.get("req_name", path)).replace("remote_access_", ""),
+                room=params.get("req_dev_num") or params.get("req_unit_num"),
+                result="request_failed",
+                error=str(ex) or type(ex).__name__,
+            )
             (LOGGER.debug if quiet else LOGGER.warning)(
                 "요청 실패 — Request failed (%s%s): %s",
                 path,
@@ -1017,6 +1038,107 @@ class BestinIparkAppAPI:
             return_exceptions=True,
         )
 
+    # ------------------------------------------------------------------
+    # 진단 기록 / Diagnostics records (v1.4.23)
+    # ------------------------------------------------------------------
+
+    def _note(self, kind: str, **fields: Any) -> None:
+        """최근 요청 기록에 한 줄 추가 / Append one event to the recent log."""
+        event: dict[str, Any] = {
+            "time": datetime.now().isoformat(timespec="seconds"),
+            "kind": kind,
+        }
+        event.update({k: v for k, v in fields.items() if v is not None})
+        self._diag("_events", lambda: deque(maxlen=300)).append(event)
+
+    def _diag(self, name: str, factory: Callable[[], Any]) -> Any:
+        """진단 기록을 필요할 때 만듭니다 / Create a diagnostics record on use.
+
+        테스트는 ``__init__`` 없이 객체를 만들기도 해서 미리 있다고 가정하지
+        않습니다. Tests build the object without ``__init__``, so don't assume.
+        """
+        value = self.__dict__.get(name)
+        if value is None:
+            value = self.__dict__[name] = factory()
+        return value
+
+    @staticmethod
+    def _result_label(result: str | None, body: str | None) -> str:
+        """``result`` 가 없을 때의 이유 / Why there is no ``result``."""
+        if result is not None:
+            return result
+        if body is None:
+            return "no_reply"
+        if not body.strip():
+            return "empty"
+        return "unparsed"
+
+    def _note_status(
+        self,
+        kind: str,
+        cls_key: str,
+        room: int | None,
+        result: str | None,
+        root: ET.Element | None,
+        body: str | None,
+    ) -> None:
+        """상태 조회 결과를 장치별 표와 기록에 남깁니다 / Record a status reply."""
+        key = cls_key if room is None else f"{cls_key}:{room}"
+        rows = len(root.findall(".//status_info")) if root is not None else 0
+        label = self._result_label(result, body)
+        now = datetime.now().isoformat(timespec="seconds")
+        last_status = self._diag("_last_status", dict)
+        previous = last_status.get(key, {})
+        last_status[key] = {
+            "result": label,
+            "rows": rows,
+            "at": now,
+            "last_ok": now if result == RESULT_OK else previous.get("last_ok"),
+        }
+        if result != RESULT_OK and body:
+            self._diag("_last_bad_reply", dict)[key] = body[:400]
+        self._note(kind, cls=cls_key, room=room, result=label, rows=rows)
+
+    def diagnostics_snapshot(self) -> dict[str, Any]:
+        """진단과 문제 신고용 상태 / State for diagnostics and problem reports.
+
+        가리기 전의 값입니다. ``diagnostics.py`` 가 내보내기 전에 가립니다.
+        Unscrubbed; ``diagnostics.py`` scrubs it before it leaves.
+        """
+
+        def key_str(key: str | tuple[str, int]) -> str:
+            return key if isinstance(key, str) else f"{key[0]}:{key[1]}"
+
+        status: dict[str, dict[str, Any]] = {}
+        for key, entry in self._diag("_last_status", dict).items():
+            probe = key if ":" not in key else (key.split(":")[0], int(key.split(":")[1]))
+            status[key] = {
+                **entry,
+                "ever_ok": probe in self._class_ever_ok,
+                "fail_streak": self._class_fatal_streak.get(probe, 0),
+                "backed_off": probe in self._class_backed_off,
+                "next_probe_cycle": self._class_next_probe.get(probe),
+            }
+        return {
+            "kind": "iparkapp",
+            "site": {
+                "sitecode": self.site.get("sitecode"),
+                "sitename": self.site.get("sitename"),
+            },
+            "login": getattr(self, "_last_login", None),
+            "poll_cycle": self._poll_cycle,
+            "last_update_time": self.last_update_time,
+            "last_session_refresh": self.last_sess_refresh,
+            "refresh_failures": self._refresh_failures,
+            "status": status,
+            "rooms_found": sorted(key_str(k) for k, v in self._room_exists.items() if v),
+            "unit_cnt": dict(self._unit_cnt),
+            "backed_off": sorted(key_str(k) for k in self._class_backed_off),
+            "room_sensors": {str(k): v for k, v in self.room_sensors.items()},
+            "last_bad_reply": dict(self._diag("_last_bad_reply", dict)),
+            "events": list(self._diag("_events", lambda: deque(maxlen=300))),
+        }
+
     async def _fetch_class(self, cls: DeviceClass, room: int | None = None) -> None:
         """단일 장치 클래스의 상태를 가져옵니다 — Fetch one device class."""
         params: dict[str, str | int] = {
@@ -1042,6 +1164,7 @@ class BestinIparkAppAPI:
             quiet=probe_key not in self._class_ever_ok,
         )
         result, root = self._parse_xml_result(body)
+        self._note_status("status", cls.key, room, result, root, body)
 
         if result != RESULT_OK:
             # 빈 응답도 실패로 셉니다. v1.4.16 까지는 빈 응답 한 번에 그 방을
@@ -1361,12 +1484,17 @@ class BestinIparkAppAPI:
             url, params, referer_path="/webapp/energyView.php"
         )
         if not body or not body.strip().startswith("["):
+            self._note("energy", cls=kind, result="no_reply" if body is None else "not_json")
+            if body:
+                self._diag("_last_bad_reply", dict)[f"energy:{kind}"] = body[:400]
             return
         try:
             payload = json.loads(body)
         except ValueError as ex:
             LOGGER.debug("에너지 JSON 파싱 실패 — Energy JSON parse failed: %s", ex)
+            self._note("energy", cls=kind, result="bad_json", error=str(ex))
             return
+        self._note("energy", cls=kind, result="ok", rows=len(payload) if isinstance(payload, list) else None)
 
         # ENERGY_CATEGORIES[kind] holds bilingual labels — surfaced in docs
         # rather than entity attributes (HA users can rename the sensor).
@@ -1569,6 +1697,16 @@ class BestinIparkAppAPI:
             referer_path=REFERER_PAGES.get(cls.key, "/webapp/index.php"),
         )
         result, root = self._parse_xml_result(body)
+        self._note(
+            "control",
+            cls=cls.key,
+            room=room_id if cls.room_scoped or cls.key == "temper" else None,
+            result=self._result_label(result, body),
+            unit=unit_id,
+            value=str(value),
+        )
+        if result != RESULT_OK and body:
+            self._diag("_last_bad_reply", dict)[f"control:{cls.key}"] = body[:400]
 
         if result == RESULT_OK:
             LOGGER.info(

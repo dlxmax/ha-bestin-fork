@@ -22,11 +22,17 @@ from homeassistant.const import (
     CONF_HOST,
     CONF_PORT,
     CONF_SCAN_INTERVAL,
+    __version__ as HA_VERSION,
 )
 import homeassistant.helpers.config_validation as cv
+from homeassistant.loader import async_get_integration
 
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.selector import selector
+from homeassistant.helpers.selector import (
+    TextSelector,
+    TextSelectorConfig,
+    selector,
+)
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .hub import BestinHub
@@ -43,6 +49,14 @@ from .const import (
     DEFAULT_PACKET_VIEWER,
 )
 from .iparkapp import fetch_directory
+from .report import (
+    build_issue_url,
+    collect_secrets,
+    error_text,
+    flow_error_blocks,
+    issue_title,
+    scrub_text,
+)
 from .iparkapp_const import (
     CONF_IPARKAPP_PASSWORD,
     CONF_IPARKAPP_SITE,
@@ -73,6 +87,40 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
         """Return an integer between 'min_int' and 'max_int'."""
         return vol.All(vol.Coerce(int), vol.Range(min=min_int, max=max_int))
 
+    async def _error_placeholders(
+        self, step: str, exc: BaseException, user_input: dict[str, Any] | None
+    ) -> dict[str, str]:
+        """예상하지 못한 오류를 화면에 보이고 신고 링크를 만듭니다.
+
+        아직 항목이 없어 진단을 내려받을 수 없는 단계입니다. 그래서 실제 오류와
+        BESTIN 코드의 traceback 을 담은 GitHub 링크를 양식에 보여줍니다.
+
+        Show an unexpected error on the form with a report link. No entry exists
+        yet, so diagnostics can't be downloaded; the link carries the real error
+        and the BESTIN frames of the traceback instead.
+        """
+        LOGGER.exception("설정 오류 / Setup step '%s' failed", step)
+        secrets = collect_secrets({"input": user_input or {}, "site": self.data})
+        try:
+            version = str((await async_get_integration(self.hass, DOMAIN)).version)
+        except Exception:  # noqa: BLE001
+            version = None
+        title = issue_title(f"setup:{step}", version, error_text(exc))
+        url, _body = build_issue_url(
+            scrub_text(title, secrets),
+            "",
+            flow_error_blocks(step, exc, version, HA_VERSION, secrets),
+            attach_note=False,
+        )
+        return {
+            "err": scrub_text(error_text(exc), secrets)[:300],
+            "report": (
+                "\n\n**[GitHub 에 문제 신고 / Report this on GitHub]("
+                + url
+                + ")** (내용은 GitHub 에서 확인 후 제출 / review it on GitHub before submitting)"
+            ),
+        }
+
     async def async_step_user(
         self,
         user_input: dict[str, Any] | None = None
@@ -89,29 +137,47 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle local communication setup."""
         errors = {}
+        placeholders = {"err": "", "report": ""}
 
         if user_input is not None:
             host = user_input[CONF_HOST]
             port = user_input[CONF_PORT]
-            
+            hub = None
+            connected = False
+
             try:
                 hub = BestinHub(self.hass, entry=None)
-                await asyncio.wait_for(hub.connect(host, port), timeout=5)
+                connected = await asyncio.wait_for(hub.connect(host, port), timeout=5)
             except asyncio.TimeoutError as ex:
                 LOGGER.error(f"Connection to {host}:{port} failed due to timeout: {ex}")
                 errors["base"] = "connect_failed"
-            else:            
+            except Exception as ex:  # noqa: BLE001 / show the real error (issue #4)
+                errors["base"] = "unknown_detail"
+                placeholders = await self._error_placeholders("local", ex, user_input)
+            finally:
+                # 연결 확인용 소켓은 닫습니다. 항목이 설정되면 새로 엽니다.
+                # Close the probe connection; setup opens its own.
+                if hub is not None and hub.connection is not None:
+                    try:
+                        await hub.connection.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+
+            if not errors and not connected:
+                errors["base"] = "connect_failed"
+            if not errors:
                 await self.async_set_unique_id(user_input[CONF_HOST])
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(title=user_input[CONF_HOST], data=user_input)
-        
+
         return self.async_show_form(
             step_id="local",
             data_schema=vol.Schema({
                 vol.Required(CONF_HOST): cv.string,
                 vol.Required(CONF_PORT, default=DEFAULT_PORT): cv.port,
             }),
-            errors=errors
+            errors=errors,
+            description_placeholders=placeholders,
         )
 
     async def _v1_server_login(self, user_input, session) -> Any:
@@ -144,7 +210,7 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
 
         except Exception as ex:
             LOGGER.error(f"V1 Login exception: {type(ex).__name__}. Details: {ex}")
-            return None, ("unknown", None)
+            return None, ("unknown_detail", ex)
 
     async def _v2_server_login(self, user_input, session) -> Any:
         """Login to the I'Park Smart Home server (v2) and retrieve session cookies."""
@@ -171,7 +237,23 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
         
         except Exception as ex:
             LOGGER.error(f"V2 Login exception: {type(ex).__name__}. Details: {ex}")
-            return None, ("unknown", None)
+            return None, ("unknown_detail", ex)
+
+    async def _login_error_placeholders(
+        self, step: str, detail: Any, user_input: dict[str, Any]
+    ) -> dict[str, str]:
+        """로그인 오류 내용을 양식용 값으로 / Login error detail for the form.
+
+        v1.4.22 까지 v2 는 ``detail["msg"]`` 를 바로 읽어서, 네트워크 오류
+        (detail 이 None) 때 TypeError 로 '알 수 없는 오류' 가 났습니다.
+        Through v1.4.22 v2 read ``detail["msg"]`` directly, so a network error
+        (detail None) crashed with TypeError and showed "unknown error".
+        """
+        if isinstance(detail, BaseException):
+            return await self._error_placeholders(step, detail, user_input)
+        if isinstance(detail, dict):
+            detail = detail.get("msg", detail)
+        return {"err": "" if detail is None else str(detail), "report": ""}
 
     async def async_step_center(
         self, 
@@ -205,7 +287,7 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle the center version 1."""
         errors = {}
-        description_placeholders = None  
+        description_placeholders = {"err": "", "report": ""}
 
         if user_input is not None:
             session = async_create_clientsession(self.hass)
@@ -214,7 +296,9 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
 
             if error_message:
                 errors["base"] = error_message[0]
-                description_placeholders = {"err": error_message[1]}
+                description_placeholders = await self._login_error_placeholders(
+                    "center_v1", error_message[1], user_input
+                )
             else:
                 user_input[CONF_SESSION] = response
                 await self.async_set_unique_id(user_input[CONF_USERNAME])
@@ -240,7 +324,7 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle the center version 2."""
         errors = {}
-        description_placeholders = None  
+        description_placeholders = {"err": "", "report": ""}
 
         if user_input is not None:
             session = async_create_clientsession(self.hass)
@@ -249,7 +333,9 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
 
             if error_message:
                 errors["base"] = error_message[0]
-                description_placeholders = {"err": error_message[1]["msg"]}
+                description_placeholders = await self._login_error_placeholders(
+                    "center_v2", error_message[1], user_input
+                )
             else:
                 user_input[CONF_SESSION] = response
                 await self.async_set_unique_id(user_input[CONF_UUID])
@@ -378,7 +464,7 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """로그인 단계 — Step 2: username + password (no token copy-paste needed)."""
         errors: dict[str, str] = {}
-        description_placeholders: dict[str, str] | None = None
+        description_placeholders: dict[str, str] = {"err": "", "report": ""}
 
         if user_input is not None:
             session = async_create_clientsession(self.hass)
@@ -389,9 +475,14 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
                 user_input[CONF_USERNAME],
                 user_input[CONF_PASSWORD],
             )
-            if not ok:
+            if not ok and isinstance(err, BaseException):
+                errors["base"] = "unknown_detail"
+                description_placeholders = await self._error_placeholders(
+                    "iparkapp_login", err, user_input
+                )
+            elif not ok:
                 errors["base"] = err or "login_failed"
-                description_placeholders = {"err": err or ""}
+                description_placeholders = {"err": "", "report": ""}
             else:
                 entry_data = {
                     CONF_IPARKAPP_SITE: site,
@@ -428,11 +519,12 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
         site: dict[str, str],
         username: str,
         password: str,
-    ) -> tuple[bool, str | None]:
+    ) -> tuple[bool, str | BaseException | None]:
         """로그인 확인 — Run the 2-step login to verify credentials.
 
         Returns ``(True, None)`` on success or ``(False, error_key)`` where
-        ``error_key`` is one of the keys translated in the JSON files.
+        ``error_key`` is one of the keys translated in the JSON files, or the
+        exception itself when something unexpected went wrong.
         """
         ip = site["ip"]
         landing_url = f"http://{ip}{LOGIN_LANDING_PATH}"
@@ -481,7 +573,7 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
             return False, "connect_failed"
         except Exception as ex:  # pragma: no cover — defensive
             LOGGER.warning("iparkapp login verify exception: %s", ex)
-            return False, "unknown"
+            return False, ex
 
 
 class OptionsFlowHandler(OptionsFlow):
@@ -574,14 +666,24 @@ class OptionsFlowHandler(OptionsFlow):
         self,
         user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        """옵션 메뉴 / Options menu: settings, or report a problem (v1.4.23)."""
+        if self.entry.source == SOURCE_IMPORT:
+            return self.async_show_form(step_id="init", data_schema=None)
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["settings", "report"],
+        )
+
+    async def async_step_settings(
+        self,
+        user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Handle options flow."""
         errors = {}
 
-        if self.entry.source == SOURCE_IMPORT:
-            return self.async_show_form(step_id="init", data_schema=None)
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
-        
+
         rooms = ""
         if CONF_IPARKAPP_SITE in self.entry.data:
             rooms = "\n".join(
@@ -589,8 +691,46 @@ class OptionsFlowHandler(OptionsFlow):
                 for room, name in self._iparkapp_thermostats().items()
             )
         return self.async_show_form(
-            step_id="init",
+            step_id="settings",
             data_schema=self.get_data_schema(),
             errors=errors,
             description_placeholders={"rooms": rooms},
+        )
+
+    async def async_step_report(
+        self,
+        user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """문제 신고 / Report a problem.
+
+        사용자가 적은 내용과 가린 요약으로 GitHub 새 이슈 링크를 만듭니다.
+        통합은 아무것도 보내지 않고, 사용자가 GitHub 에서 확인 후 제출합니다.
+        Builds a GitHub new-issue link from what the user typed plus the
+        redacted summary. Nothing is sent: the user reviews and submits it.
+        """
+        if user_input is not None:
+            # diagnostics 는 HA 의 diagnostics 구성요소를 불러오므로 필요할 때만
+            # 가져옵니다. Imported on use: it pulls in HA's diagnostics component.
+            from .diagnostics import async_build_report
+
+            url, body = await async_build_report(
+                self.hass, self.entry, user_input.get("description", "")
+            )
+            # 옵션을 건드리지 않고 끝내려고 abort 를 씁니다. 빈 data 로
+            # create_entry 를 하면 옵션이 지워집니다.
+            # Abort ends the flow without touching options; create_entry with
+            # empty data would wipe them.
+            return self.async_abort(
+                reason="report_ready",
+                description_placeholders={"url": url, "summary": body},
+            )
+        return self.async_show_form(
+            step_id="report",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional("description", default=""): TextSelector(
+                        TextSelectorConfig(multiline=True)
+                    ),
+                }
+            ),
         )

@@ -15,6 +15,7 @@ from .const import DOMAIN, LOGGER, PLATFORMS, CONF_SESSION
 from .errors import BestinIparkAppError, IparkAppAuthError
 from .hub import BestinHub
 from .iparkapp_const import CONF_IPARKAPP_SITE
+from .report import SETUP_ERRORS_KEY, error_text, install_log_ring
 from .notify import (
     async_clear_unavailable,
     async_notify_auth_failed,
@@ -419,6 +420,26 @@ def _register_hub_device(hass: HomeAssistant, entry: ConfigEntry, hub: BestinHub
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up the BESTIN integration.
+
+    v1.4.23: 마지막 설정 실패 이유를 남겨, 항목이 로드되지 않았어도 진단과
+    문제 신고에서 보이게 합니다.
+    v1.4.23: remembers why the last setup failed, so diagnostics and the
+    problem report can show it even when the entry is not loaded.
+    """
+    install_log_ring(LOGGER)
+    errors: dict[str, str] = hass.data.setdefault(SETUP_ERRORS_KEY, {})
+    try:
+        result = await _async_setup_entry(hass, entry)
+    except Exception as ex:
+        cause = ex.__cause__ if isinstance(ex, ConfigEntryNotReady) and ex.__cause__ else ex
+        errors[entry.entry_id] = error_text(cause)
+        raise
+    errors.pop(entry.entry_id, None)
+    return result
+
+
+async def _async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the BESTIN integration."""
     _cleanup_stale_doorlock_entities(hass, entry)
     _cleanup_legacy_heatsource_sensors(hass, entry)

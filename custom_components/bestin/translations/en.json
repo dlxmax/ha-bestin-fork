@@ -17,7 +17,8 @@
                 },
                 "data_description": {
                     "port": "Port can be omitted for serial communication."
-                }
+                },
+                "description": "{report}"
             },
             "center": {
                 "description": "Please refer to the [documentation](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/center.md) for instructions on configuring each section.",
@@ -30,7 +31,8 @@
                     "ip_address": "IP address",
                     "username": "Username",
                     "password": "Password"
-                }
+                },
+                "description": "{report}"
             },
             "center_v2": {
                 "data": {
@@ -40,7 +42,8 @@
                 },
                 "data_description": {
                     "ip_address": "If elevator integration is required, please enter the IP address of the wall pad in the household."
-                }
+                },
+                "description": "{report}"
             },
             "iparkapp": {
                 "description": "Pick your apartment complex. The list is fetched from the i-parklife.com directory. Choose 'Enter manually' if your complex is missing.",
@@ -60,7 +63,7 @@
                 }
             },
             "iparkapp_login": {
-                "description": "Enter the same username and password you use in the iPark Smarthome app. No token copy-paste needed.",
+                "description": "Enter the same username and password you use in the iPark Smarthome app. No token copy-paste needed.{report}",
                 "data": {
                     "username": "Username",
                     "password": "Password"
@@ -75,12 +78,20 @@
             "login_failed": "Login failed. {err}",
             "network_error": "A network error has occurred.",
             "directory_lookup_failed": "Could not look up the site directory.",
-            "unknown": "An unknown error has occurred."
+            "unknown": "An unknown error has occurred.",
+            "unknown_detail": "Unexpected error: {err}"
         }
     },
     "options": {
         "step": {
             "init": {
+                "title": "BESTIN options",
+                "menu_options": {
+                    "settings": "Change settings",
+                    "report": "Report a problem"
+                }
+            },
+            "settings": {
                 "title": "Adjust User Options",
                 "description": "Thermostats expose the standard HA presets (Comfort / Eco / Sleep / Away / Vacation / Frost / Boost) per room. On the iPark Smarthome App option these also engage a software slow duty cycle (time-proportional control, not high-frequency PWM). Use the three importable HA Blueprints under `blueprints/automation/bestin/` for night setback / vacation / away schedules. See the [iPark Smarthome App guide](https://github.com/dlxmax/ha-bestin-fork/blob/main/guide/iparkapp.md#슬로우-듀티-사이클-제어--slow-duty-cycle-control) for details.\n\nRoom temperature sensors (optional, iPark Smarthome App only): through the app the wallpad's temperature arrives as whole degrees, rounded down, and the wall unit often reads high. Pick an HA temperature sensor for a room and its thermostat shows that sensor, and the duty cycle presets control on it. The wallpad's own reading stays available as the `wallpad_temperature` attribute. Leave a room empty to keep using the wallpad.\n{rooms}",
                 "data": {
@@ -94,7 +105,17 @@
                     "room_temp_sensor_5": "Room 5 temperature sensor",
                     "room_temp_sensor_6": "Room 6 temperature sensor"
                 }
+            },
+            "report": {
+                "title": "Report a problem",
+                "description": "Describe what is not working (you can also leave this empty and write it on GitHub). The next screen gives you a GitHub issue link carrying the BESTIN version, connection type, complex code and name, the last reply per device and recent errors. Passwords, IDs, IPs, coordinates, sessions and your unit number are hidden. BESTIN sends nothing: you review the text on GitHub and submit it yourself.",
+                "data": {
+                    "description": "What is not working?"
+                }
             }
+        },
+        "abort": {
+            "report_ready": "## [👉 Open the GitHub issue]({url})\n\n1. Download diagnostics: Settings > Devices & services > BESTIN > ⋮ > Download diagnostics\n2. Open the link above (needs a GitHub login) and review the text.\n3. Drag the diagnostics file into the issue box and submit.\n\n---\n\nWhat the link contains:\n\n{summary}"
         }
     }
 }

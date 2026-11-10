@@ -219,10 +219,28 @@ ON 시간 = cycle × duty% (사이클 시작부터) / ON for cycle × duty% from
 - **밸브 동작 횟수가 늘어납니다.** 듀티 사이클은 분배기 구동기를 사이클마다 열고 닫습니다. 수명에 미치는 영향은 측정된 자료가 없습니다 (이전 버전의 "5-8년" 수치는 근거가 없었습니다). 기본값 (None) 은 듀티 사이클을 쓰지 않습니다.  
   *More valve operations. Duty cycling opens and closes the manifold actuators every cycle. There is no measured data on what that does to their life (the "5-8 years" figure in earlier versions had no basis). The default (None) does not duty cycle.*
 
+## 문제 신고 / Reporting a problem
+
+로그 설정 없이 바로 신고할 수 있습니다 (v1.4.23 부터).  
+*No logger setup needed (v1.4.23 and later).*
+
+1. **설정 > 기기 및 서비스 > BESTIN > 구성 > 문제 신고** 를 고르고, 무엇이 안 되는지 적습니다 (비워 두어도 됩니다).  
+   *Settings > Devices & services > BESTIN > Configure > Report a problem, and describe what is not working (optional).*
+2. 다음 화면의 **GitHub 이슈 열기** 링크를 엽니다. 버전, 연결 방식, 장치별 마지막 응답, 최근 오류가 미리 채워져 있습니다. 내용을 확인한 뒤 제출해 주세요.  
+   *Open the **Open the GitHub issue** link on the next screen. The version, connection type, last reply per device and recent errors are filled in. Review it, then submit.*
+3. 가능하면 **BESTIN > ⋮ > 진단 다운로드** 로 받은 파일도 이슈에 끌어다 놓아 주세요.  
+   *If you can, also drag in the file from **BESTIN > ⋮ > Download diagnostics**.*
+
+비밀번호, 아이디, IP, 좌표, 세션, 동·호수는 가려집니다. 단지 코드와 이름은 단지별 서버 차이를 구분하려고 남깁니다. BESTIN 은 아무것도 자동으로 보내지 않습니다.  
+*Passwords, IDs, IPs, coordinates, sessions and your unit number are hidden. The complex code and name stay, to tell one complex's server from another. BESTIN never sends anything by itself.*
+
+설정 단계에서 오류가 나면 양식에 실제 오류와 신고 링크가 함께 표시됩니다.  
+*If setup itself fails, the form shows the actual error with a report link.*
+
 ## 디버깅 / Debugging
 
-문제가 있는 경우 `configuration.yaml` 에 아래 내용을 추가하고 HA 를 재시작하면 상세 로그를 얻을 수 있습니다.  
-*If something doesn't work, add the snippet below to `configuration.yaml` and restart HA to get verbose logs.*
+더 자세한 로그가 필요할 때만 쓰세요. 문제가 있는 경우 `configuration.yaml` 에 아래 내용을 추가하고 HA 를 재시작하면 상세 로그를 얻을 수 있습니다.  
+*Only needed when more detail is asked for. If something doesn't work, add the snippet below to `configuration.yaml` and restart HA to get verbose logs.*
 
 ```yaml
 logger:

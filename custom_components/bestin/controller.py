@@ -1,4 +1,6 @@
 import asyncio
+from collections import deque
+from datetime import datetime
 from typing import Any, Callable
 
 from homeassistant.components.climate.const import (
@@ -94,6 +96,15 @@ class BestinController:
         self.queue = AsyncQueue()
         self.tasks: list[asyncio.Task] = []
         self.timestamp = 0
+
+        # v1.4.23: 진단용 패킷 통계 (메모리에만, 늘 켜짐). 처리하지 못한 패킷
+        # 종류가 보이면 지원하지 않는 게이트웨이나 빠진 장치를 알 수 있습니다.
+        # Diagnostics packet stats (v1.4.23; memory only, always on). Packet
+        # types that arrive but are never handled point at an unsupported
+        # gateway or a device we don't parse.
+        self.packets_total = 0
+        self.packet_types: dict[str, dict[str, int]] = {}
+        self.recent_packets: deque[dict] = deque(maxlen=50)
 
     async def start(self):
         """Start the controller tasks"""
@@ -686,6 +697,57 @@ class BestinController:
         elif command not in [0x00, 0x11, 0x21, 0xA1]:
             pass
             #LOGGER.warning(f"Unknown device packet: {packet.hex()}")
+        return device_id is not None
+
+    def note_packet(self, packet: bytes, checksum_valid: bool, handled: bool) -> None:
+        """패킷 종류별로 셉니다 / Count one packet by type (header/length/command)."""
+        self.packets_total += 1
+        length = len(packet)
+        header = f"{packet[1]:02X}" if length > 1 else "--"
+        command = (
+            f"{packet[2]:02X}" if length == 10 else f"{packet[3]:02X}" if length > 3 else "--"
+        )
+        key = f"{header}/{length}/{command}"
+        counts = self.packet_types.get(key)
+        if counts is None:
+            if len(self.packet_types) >= 200:
+                key = "other"
+                counts = self.packet_types.setdefault(
+                    key, {"seen": 0, "bad_checksum": 0, "handled": 0, "ignored": 0}
+                )
+            else:
+                counts = self.packet_types[key] = {
+                    "seen": 0, "bad_checksum": 0, "handled": 0, "ignored": 0
+                }
+        counts["seen"] += 1
+        if not checksum_valid:
+            counts["bad_checksum"] += 1
+        elif handled:
+            counts["handled"] += 1
+        else:
+            counts["ignored"] += 1
+        self.recent_packets.append(
+            {
+                "time": datetime.now().isoformat(timespec="seconds"),
+                "hex": packet.hex(" "),
+                "checksum_ok": checksum_valid,
+                "handled": handled,
+            }
+        )
+
+    def diagnostics_snapshot(self) -> dict:
+        """진단과 문제 신고용 상태 / State for diagnostics and problem reports."""
+        return {
+            "kind": "rs485",
+            "gateway_type": self.gateway_type,
+            "room_to_command": self.room_to_command,
+            "connected": self.is_alive,
+            "reconnect_attempts": getattr(self.connection, "reconnect_attempts", None),
+            "queue_size": self.queue.queue.qsize(),
+            "packets_total": self.packets_total,
+            "packet_types": dict(self.packet_types),
+            "recent_packets": list(self.recent_packets),
+        }
     
     async def handle_packet_queue(self, queue: dict):
         """Handle a packet from the queue"""
@@ -721,12 +783,14 @@ class BestinController:
                 checksum_valid = self.verify_checksum(received_data)
                 self.log_packet_viewer(received_data, checksum_valid)
 
+                handled = False
                 if checksum_valid:
-                    self.handle_device_packet(received_data)
+                    handled = self.handle_device_packet(received_data)
 
                     if await self.queue.size() > 0:
                         queue_item = await self.queue.get()
                         self.validate_response(received_data, queue_item)
+                self.note_packet(received_data, checksum_valid, handled)
             except Exception as ex:
                 LOGGER.error(f"Failed to process incoming data: {ex}", exc_info=True)
 

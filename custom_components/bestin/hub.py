@@ -227,7 +227,13 @@ class BestinHub:
         self.entry = entry
         self.api: BestinCenterAPI | BestinController | BestinIparkAppAPI = None
         self.connection: ConnectionManager = None
-        saved_mode = entry.data.get("gateway_mode")
+        # 설정 단계의 연결 확인은 항목 없이 (entry=None) 허브를 만듭니다.
+        # v1.4.22 는 여기서 AttributeError 를 내서 RS-485 설정이 '알 수 없는
+        # 오류' 로 끝났습니다 (이슈 #4).
+        # The config flow's connection test builds a hub with entry=None.
+        # v1.4.22 raised AttributeError here, and RS-485 setup ended in
+        # "unknown error" (issue #4).
+        saved_mode = entry.data.get("gateway_mode") if entry else None
         if saved_mode and isinstance(saved_mode, (list, tuple)) and len(saved_mode) == 2:
             self.gateway_mode = tuple(saved_mode)
         else:
@@ -307,9 +313,12 @@ class BestinHub:
 
     def conn_str(self, host: str | None, port: int | None) -> str:
         """Generate the connection string."""
-        host = getattr(self, "hub_id", host)
+        # 항목이 있으면 저장된 값을, 설정 단계 (entry=None) 에서는 입력값을 씁니다.
+        # Saved values when there is an entry; the typed ones during setup.
+        if self.entry is not None:
+            host, port = self.hub_id, self.port
         if not re.match(r"/dev/tty(USB|AMA)\d+", host):
-            return f"{host}:{str(getattr(self, CONF_PORT, port))}"
+            return f"{host}:{port}"
         return host
     
     async def determine_gateway_mode(self) -> None:

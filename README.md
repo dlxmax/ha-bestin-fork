@@ -18,6 +18,7 @@
 - [준비 / Prerequisites (RS-485 only)](#준비--prerequisites-rs-485-only)
 - [기능 / Features](#기능--features)
 - [기여 / Contributing](#기여--contributing)
+- [문제 신고 / Reporting a problem](#문제-신고--reporting-a-problem)
 - [디버깅 / Debugging](#디버깅--debugging)
 
 ## 프로젝트 소개 / About
@@ -124,10 +125,28 @@ iPark 스마트홈 앱 / 클라우드 옵션은 별도의 하드웨어가 필요
 - 좋은 아이디어가 있으면 [Pull requests](https://github.com/dlxmax/ha-bestin-fork/pulls) 환영합니다. / *Got a better idea? Open a [pull request](https://github.com/dlxmax/ha-bestin-fork/pulls).*
 - 본 통합 사용으로 발생하는 문제에 대해 책임지지 않습니다. / *Use at your own risk; no warranty is provided.*
 
+## 문제 신고 / Reporting a problem
+
+로그 설정 없이 바로 신고할 수 있습니다 (v1.4.23 부터).  
+*No logger setup needed (v1.4.23 and later).*
+
+1. **설정 > 기기 및 서비스 > BESTIN > 구성 > 문제 신고** 를 고르고, 무엇이 안 되는지 적습니다 (비워 두어도 됩니다).  
+   *Settings > Devices & services > BESTIN > Configure > Report a problem, and describe what is not working (optional).*
+2. 다음 화면의 **GitHub 이슈 열기** 링크를 엽니다. 버전, 연결 방식, 장치별 마지막 응답, 최근 오류가 미리 채워져 있습니다. 내용을 확인한 뒤 제출해 주세요.  
+   *Open the **Open the GitHub issue** link on the next screen. The version, connection type, last reply per device and recent errors are filled in. Review it, then submit.*
+3. 가능하면 **BESTIN > ⋮ > 진단 다운로드** 로 받은 파일도 이슈에 끌어다 놓아 주세요.  
+   *If you can, also drag in the file from **BESTIN > ⋮ > Download diagnostics**.*
+
+비밀번호, 아이디, IP, 좌표, 세션, 동·호수는 가려집니다. 단지 코드와 이름은 단지별 서버 차이를 구분하려고 남깁니다. BESTIN 은 아무것도 자동으로 보내지 않습니다.  
+*Passwords, IDs, IPs, coordinates, sessions and your unit number are hidden. The complex code and name stay, to tell one complex's server from another. BESTIN never sends anything by itself.*
+
+설정 단계에서 오류가 나면 양식에 실제 오류와 신고 링크가 함께 표시됩니다.  
+*If setup itself fails, the form shows the actual error with a report link.*
+
 ## 디버깅 / Debugging
 
-문제 파악을 위해 아래 코드를 `configuration.yaml` 에 추가 후 Home Assistant 를 재시작하세요. 생성된 디버그 로그를 이슈 등록 시 첨부해 주시면 빠른 진단에 도움이 됩니다.  
-*To investigate issues, add the snippet below to `configuration.yaml` and restart Home Assistant. Please attach the generated debug log when opening an issue.*
+더 자세한 로그가 필요할 때만 쓰세요. 문제 파악을 위해 아래 코드를 `configuration.yaml` 에 추가 후 Home Assistant 를 재시작하세요. 생성된 디버그 로그를 이슈 등록 시 첨부해 주시면 빠른 진단에 도움이 됩니다.  
+*Only needed when more detail is asked for. To investigate issues, add the snippet below to `configuration.yaml` and restart Home Assistant. Please attach the generated debug log when opening an issue.*
 
 ```yaml
 logger:

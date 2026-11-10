@@ -5,6 +5,7 @@ import xmltodict
 import xml.etree.ElementTree as ET
 import aiohttp
 import json
+from collections import deque
 
 from datetime import datetime, timedelta
 from typing import Any, Callable
@@ -60,7 +61,17 @@ class CenterAPIv2:
         self.elevator_number: int = entry.data.get("elevator_number", 1)
 
         self.features_list: list[dict] = []
-        self.elevator_data: dict[str,  dict] = {}
+        # 엘리베이터 차량별 마지막 move_info (Serial 기준) 와 화면 번호.
+        # v1.4.22 까지는 메시지마다 사전을 통째로 바꿔서 두 대가 있어도 항상
+        # 1번에만 쓰였고, 2번 층수는 'Unknown' 으로 남았습니다 (이슈 #2).
+        # Last move_info per car (by Serial) and the entity slot each car
+        # owns. Through v1.4.22 the dict was replaced on every message, so
+        # with two cars everything landed on slot 1 and slot 2 stayed
+        # 'Unknown' (issue #2).
+        self.elevator_cars: dict[str, dict] = {}
+        self.elevator_slots: dict[str, int] = {}
+        # 진단용 최근 SSE 메시지 / Recent SSE messages for diagnostics.
+        self.elevator_messages: deque[dict] = deque(maxlen=30)
 
     async def _v2_device_status(self, args=None):
         """Update device status for v2 API."""
@@ -146,7 +157,9 @@ class CenterAPIv2:
                 async for line in response.content:
                     if line.startswith(b"data:"):
                         message = line.decode('utf-8').strip("data:").strip()
-                        if json.loads(message).get("address") == self.register_elevator:
+                        parsed = json.loads(message)
+                        self._note_elevator_message(parsed)
+                        if parsed.get("address") == self.register_elevator:
                             LOGGER.debug(f"Received message - elevator: {message}")
                             await self.handle_message_info(message)
                     if self.elevator_arrived:
@@ -155,46 +168,89 @@ class CenterAPIv2:
         except Exception as ex:
             LOGGER.error(f"Fetch elevator status error occurred: {ex}")
 
+    def _note_elevator_message(self, data: dict) -> None:
+        """진단용으로 SSE 메시지를 남깁니다 / Keep an SSE message for diagnostics.
+
+        address 값은 남기지 않고 우리 세대와 같은지만 기록합니다.
+        The address itself is dropped; only whether it matches ours is kept.
+        """
+        if not isinstance(data, dict):
+            return
+        note = {k: v for k, v in data.items() if k != "address"}
+        note["address_matches"] = data.get("address") == self.register_elevator
+        note["time"] = datetime.now().isoformat(timespec="seconds")
+        self.elevator_messages.append(note)
+
+    def _elevator_slot(self, serial: str) -> int | None:
+        """차량 Serial 에 고정 화면 번호를 줍니다 / Give a car a fixed slot.
+
+        처음 보인 순서대로 1, 2, ... 를 주고 계속 유지합니다. 설정한
+        엘리베이터 수보다 많으면 None 입니다.
+        Slots are handed out in the order cars first appear and kept from
+        then on. None once more cars appear than were configured.
+        """
+        if serial in self.elevator_slots:
+            return self.elevator_slots[serial]
+        if len(self.elevator_slots) >= self.elevator_number:
+            return None
+        slot = len(self.elevator_slots) + 1
+        self.elevator_slots[serial] = slot
+        return slot
+
     async def handle_message_info(self, message: str):
         """Process elevator message information."""
         data = json.loads(message)
 
         if "move_info" in data:
             move_info = data["move_info"]
-            serial = move_info["Serial"]
-        
-            self.elevator_data = {serial: move_info}
-            self.elevator_data = dict(sorted(self.elevator_data.items()))
-            LOGGER.debug("Elevator data: %s", self.elevator_data)
-
-            if len(self.elevator_data) >= 2:
-                for idx, (serial, info) in enumerate(self.elevator_data.items(), start=1):
-                    floor = info["Floor"]
-                    move_dir = info["MoveDir"].capitalize()
-                    self.elevator_data[f"floor{str(idx)}"] = floor
-
-                    self.set_device("elevator", 1, f"floor_{str(idx)}", floor)
-                    self.set_device("elevator", 1, f"direction_{str(idx)}", move_dir)
-            else:
-                floor = move_info["Floor"]
-                move_dir = move_info["MoveDir"].capitalize()
-                self.elevator_data[f"floor1"] = floor
-                
-                self.set_device("elevator", 1, "floor_1", floor)
-                self.set_device("elevator", 1, "direction_1", move_dir)
+            serial = str(move_info.get("Serial", ""))
+            self.elevator_cars[serial] = move_info
+            slot = self._elevator_slot(serial)
+            LOGGER.debug("Elevator data: %s (slot %s)", self.elevator_cars, slot)
+            if slot is None:
+                LOGGER.debug(
+                    "Elevator %s ignored: more cars than elevator_number=%d",
+                    serial, self.elevator_number,
+                )
+                return
+            floor = move_info.get("Floor", "-")
+            move_dir = str(move_info.get("MoveDir", "")).capitalize()
+            self.set_device("elevator", 1, f"floor_{slot}", floor)
+            self.set_device("elevator", 1, f"direction_{slot}", move_dir)
         else:
+            # 도착 / Arrival: show each car's last floor, then reset.
+            last_floor = {
+                slot: self.elevator_cars.get(serial, {}).get("Floor", "-")
+                for serial, slot in self.elevator_slots.items()
+            }
             for idx in range(1, self.elevator_number + 1):
-                floor = self.elevator_data.get(f"floor{str(idx)}", "Unknown")
-            
-                self.set_device("elevator", 1, f"floor_{str(idx)}", floor)
-                self.set_device("elevator", 1, f"direction_{str(idx)}", "Arrival")
-                await asyncio.sleep(2)  # Wait for a while
-
-                self.set_device("elevator", 1, f"floor_{str(idx)}", "-")
-                self.set_device("elevator", 1, f"direction_{str(idx)}", "Idle")
-
+                self.set_device("elevator", 1, f"floor_{idx}", last_floor.get(idx, "-"))
+                self.set_device("elevator", 1, f"direction_{idx}", "Arrival")
+            await asyncio.sleep(2)
+            for idx in range(1, self.elevator_number + 1):
+                self.set_device("elevator", 1, f"floor_{idx}", "-")
+                self.set_device("elevator", 1, f"direction_{idx}", "Idle")
+            self.elevator_cars.clear()
             self.elevator_arrived = True
-    
+
+    def diagnostics_snapshot(self) -> dict:
+        """진단과 문제 신고용 상태 / State for diagnostics and problem reports."""
+        return {
+            "kind": "center",
+            "version": getattr(self, "version", None),
+            "features": [
+                {"name": f.get("name"), "quantity": f.get("quantity")}
+                for f in self.features_list
+                if isinstance(f, dict)
+            ],
+            "elevator_number": self.elevator_number,
+            "elevator_registered": bool(self.register_elevator),
+            "elevator_slots": dict(self.elevator_slots),
+            "elevator_cars": dict(self.elevator_cars),
+            "elevator_messages": list(self.elevator_messages),
+            "devices": len(getattr(self, "devices", {}) or {}),
+        }
+
     async def request_feature_command(
         self, device_type: str, room_id: int, unit: str, value: dict | str
     ):
