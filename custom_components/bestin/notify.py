@@ -36,22 +36,22 @@ def async_notify_unavailable(
     """서버 접속 실패 알림 — Tell the user the server cannot be reached."""
     if retry_minutes is None:
         retry_line = (
-            "\n\n연결이 복구되면 이 알림은 자동으로 사라집니다.\n"
+            "\n\n연결이 복구되면 이 알림은 자동으로 사라져요.\n"
             "This notification clears itself once the connection recovers."
         )
     else:
         retry_line = (
-            f"\n\n{retry_minutes}분마다 자동으로 다시 시도합니다. 연결이 복구되면 "
-            "이 알림은 자동으로 사라집니다.\n"
+            f"\n\n{retry_minutes}분마다 자동으로 다시 시도해요. 연결이 복구되면 "
+            "이 알림은 자동으로 사라져요.\n"
             f"Retrying automatically every {retry_minutes} minutes; this "
             "notification clears itself once the connection recovers."
         )
     persistent_notification.async_create(
         hass,
-        title="BESTIN — 단지 서버 연결 실패 / Central server unreachable",
+        title="BESTIN: 단지 서버 연결 실패 / Central server unreachable",
         message=(
-            "iPark 스마트홈 서버에 연결할 수 없습니다. 단지 서버가 점검 중이거나 "
-            "다운된 경우 휴대폰 앱에서도 '알림 호출에 실패했습니다' 가 표시됩니다.\n"
+            "iPark 스마트홈 서버에 연결할 수 없어요. 단지 서버가 점검 중이거나 "
+            "다운됐다면 휴대폰 앱에도 '알림 호출에 실패했습니다' 가 떠요.\n"
             "Cannot reach the iPark Smarthome complex server. When the server "
             "itself is down the phone app fails the same way.\n\n"
             f"상세 / Detail: {detail}"
@@ -67,13 +67,13 @@ def async_notify_auth_failed(
     """자격 증명 거부 알림 — Tell the user their credentials were rejected."""
     persistent_notification.async_create(
         hass,
-        title="BESTIN — 로그인 실패 / Login rejected",
+        title="BESTIN: 로그인 실패 / Login rejected",
         message=(
-            "iPark 스마트홈 서버가 아이디 또는 비밀번호를 거부했습니다. "
-            "재시도로는 복구되지 않으니 설정 → 기기 및 서비스 → BESTIN 에서 "
+            "iPark 스마트홈 서버가 아이디 또는 비밀번호를 거부했어요. "
+            "다시 시도해도 풀리지 않으니 설정 → 기기 및 서비스 → BESTIN 에서 "
             "다시 설정해 주세요.\n"
             "The iPark Smarthome server rejected the stored username or "
-            "password. Retrying will not help — re-add the integration under "
+            "password. Retrying will not help. Re-add the integration under "
             "Settings → Devices & services → BESTIN.\n\n"
             f"상세 / Detail: {detail}"
         ),

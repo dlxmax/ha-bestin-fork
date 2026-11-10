@@ -420,7 +420,7 @@ def build_summary_blocks(snapshot: dict[str, Any]) -> list[str]:
     kind = gw.get("kind")
     if gw.get("from_failed_setup"):
         blocks.append(
-            f"_아래 상태는 실패한 설정 시도 ({gw.get('saved_at', '?')}) 에서 가져왔습니다. / "
+            f"_아래 상태는 실패한 설정 시도 ({gw.get('saved_at', '?')}) 에서 가져왔어요. / "
             f"The state below is from the failed setup attempt at {gw.get('saved_at', '?')}._"
         )
     if kind == "iparkapp":
