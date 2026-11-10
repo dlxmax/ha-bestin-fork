@@ -697,6 +697,50 @@ class OptionsFlowHandler(OptionsFlow):
             description_placeholders={"rooms": rooms},
         )
 
+    def _diagnostics_link(self) -> str:
+        """진단 파일을 바로 내려받는 서명된 링크 / Signed diagnostics download link.
+
+        HA 의 '진단 다운로드' 버튼과 같은 방식으로, 지금 이 창을 연 관리자의
+        토큰으로 10분짜리 서명 링크를 만듭니다. 토큰을 찾지 못하면 통합 페이지로
+        보냅니다 (거기서 점 세 개 메뉴로 받으면 됩니다).
+        Signs a 10 minute link with the token of the admin who opened this
+        dialog, the same way HA's own download button does. Without that token
+        it links to the integration page, where the three-dot menu has it.
+        """
+        fallback = f"/config/integrations/integration/{DOMAIN}"
+        try:
+            from datetime import timedelta
+
+            from homeassistant.components.http.auth import async_sign_path
+            from homeassistant.components.http.const import (
+                KEY_HASS_REFRESH_TOKEN_ID,
+            )
+            from homeassistant.helpers.http import current_request
+
+            token_id = None
+            request = current_request.get()
+            if request is not None and KEY_HASS_REFRESH_TOKEN_ID in request:
+                token_id = request[KEY_HASS_REFRESH_TOKEN_ID]
+            else:
+                from homeassistant.components.websocket_api import (
+                    current_connection,
+                )
+
+                conn = current_connection.get()
+                if conn is not None:
+                    token_id = conn.refresh_token_id
+            if not token_id:
+                return fallback
+            return async_sign_path(
+                self.hass,
+                f"/api/diagnostics/config_entry/{self.entry.entry_id}",
+                timedelta(minutes=10),
+                refresh_token_id=token_id,
+            )
+        except Exception as ex:  # noqa: BLE001
+            LOGGER.debug("Could not sign the diagnostics link: %r", ex)
+            return fallback
+
     async def async_step_report(
         self,
         user_input: dict[str, Any] | None = None
@@ -722,7 +766,22 @@ class OptionsFlowHandler(OptionsFlow):
             # empty data would wipe them.
             return self.async_abort(
                 reason="report_ready",
-                description_placeholders={"url": url, "summary": body},
+                description_placeholders={
+                    "url": url,
+                    # 번역 문자열 안에 HTML 태그를 쓰면 HA 화면이 INVALID_TAG
+                    # 오류를 냅니다. 그래서 링크 태그는 자리표시자 값으로 넣습니다.
+                    # target 이 있어야 HA 가 앱 안 이동으로 가로채지 않고
+                    # 브라우저가 파일을 내려받습니다.
+                    # An HTML tag inside a translation string fails with
+                    # INVALID_TAG in the frontend, so the tag goes in the
+                    # placeholder value. The target attribute stops HA from
+                    # routing the click inside the app, so the browser downloads.
+                    "diag": (
+                        f'<a href="{self._diagnostics_link()}" target="_blank">'
+                        f"config_entry-bestin.json</a>"
+                    ),
+                    "summary": body,
+                },
             )
         return self.async_show_form(
             step_id="report",

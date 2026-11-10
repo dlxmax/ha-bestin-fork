@@ -307,6 +307,29 @@ fsum = "\n\n".join(report.build_summary_blocks(diag_f))
 check("failed-setup state labelled", "failed setup attempt at 2026-11-10T09:59:00" in fsum, True)
 check("failed-setup table still shown", "| light:1 | deny |" in fsum, True)
 
+# Rooms with the same result share one row; a different room stays apart.
+st = {f"light:{n}": {"result": "empty", "rows": 0, "fail_streak": 5, "backed_off": True, "at": f"2026-11-10T11:31:1{n}"} for n in range(1, 7)}
+st["light:4"] = {"result": "ok", "rows": 1, "ever_ok": True, "at": "2026-11-10T11:31:00"}
+st["gas"] = {"result": "fail", "rows": 1, "at": "2026-11-10T11:31:23"}
+grows = report._status_rows(st)
+check("grouped rows", [r[0] for r in grows], ["gas", "light:1-3,5-6", "light:4"])
+check("group keeps latest time", grows[1][-1], "11:31:16")
+
+# Over budget, request history and samples go before warnings and the table.
+blocks = [
+    "head",
+    report.Block("TABLE " + "x" * 400, report._DROP_TABLE),
+    report.Block("SAMPLES " + "x" * 400, report._DROP_SAMPLES),
+    report.Block("WARNINGS " + "x" * 400, report._DROP_WARNINGS),
+    report.Block("EVENTS " + "x" * 400, report._DROP_EVENTS),
+]
+full = len(report.build_issue_url("t", "u", blocks, budget=100000)[0])
+_, tbody = report.build_issue_url("t", "u", blocks, budget=full - 500)
+check("events and samples dropped first", ("EVENTS" in tbody, "SAMPLES" in tbody), (False, False))
+check("warnings and table kept", ("WARNINGS" in tbody, "TABLE" in tbody), (True, True))
+check("kept blocks stay in display order", tbody.index("TABLE") < tbody.index("WARNINGS"), True)
+check("dropped count noted", "2 summary block(s) left out" in tbody, True)
+
 if failures:
     print("\nFAILURES:", failures)
     sys.exit(1)

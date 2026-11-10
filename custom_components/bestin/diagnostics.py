@@ -1,10 +1,10 @@
 """BESTIN 진단 / Diagnostics for BESTIN.
 
-설정 > 기기 및 서비스 > BESTIN > ⋮ > 진단 다운로드. 비밀번호, 아이디, IP,
+설정 > 기기 및 서비스 > BESTIN > ⋮ (점 세 개) > 진단 다운로드. 비밀번호, 아이디, IP,
 좌표, 세션, 세대 동·호는 가립니다. 단지 코드와 단지 이름은 단지별 서버 차이를
 가려내는 데 필요해서 남깁니다.
 
-Settings > Devices & services > BESTIN > ⋮ > Download diagnostics. Passwords,
+Settings > Devices & services > BESTIN > ⋮ (three dots) > Download diagnostics. Passwords,
 user IDs, IPs, coordinates, sessions and the household unit are redacted. The
 complex code and name stay: they are how we tell one complex's server from
 another.

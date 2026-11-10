@@ -115,7 +115,7 @@
             }
         },
         "abort": {
-            "report_ready": "## [👉 GitHub 이슈 열기 / Open the GitHub issue]({url})\n\n1. 진단 파일 내려받기: 설정 > 기기 및 서비스 > BESTIN > ⋮ > 진단 다운로드\n2. 위 링크를 열고 (GitHub 로그인 필요) 내용을 확인합니다.\n3. 진단 파일을 이슈 입력란에 끌어다 놓고 제출합니다.\n\n1. Download diagnostics: Settings > Devices & services > BESTIN > ⋮ > Download diagnostics\n2. Open the link above (needs a GitHub login) and review the text.\n3. Drag the diagnostics file into the issue box and submit.\n\n---\n\n링크에 담기는 내용 / What the link contains:\n\n{summary}"
+            "report_ready": "## 1. ⬇ 진단 파일 내려받기 / Download the diagnostics file: {diag}\n## 2. [👉 GitHub 이슈 열기 / Open the GitHub issue]({url})\n## 3. 내려받은 파일을 GitHub 이슈 입력란에 끌어다 놓고 제출 / Drag the downloaded file into the GitHub issue and submit\n\n**'닫기' 는 이 창만 닫으며, 아무것도 보내지 않습니다.** 1번과 2번을 먼저 눌러 주세요.\n**The Close button only closes this window and sends nothing.** Click 1 and 2 first.\n\nGitHub 로그인이 필요합니다. 내려받기 링크는 10분 동안만 됩니다. 안 되면: 설정 > 기기 및 서비스 > BESTIN > ⋮ (점 세 개) > 진단 다운로드\nYou need a GitHub login. The download link works for 10 minutes. If it fails: Settings > Devices & services > BESTIN > ⋮ (three dots) > Download diagnostics\n\n---\n\n링크에 담기는 내용 / What the link contains:\n\n{summary}\n\n---\n\n## 1. ⬇ 진단 파일 내려받기 / Download the diagnostics file: {diag}\n## 2. [👉 GitHub 이슈 열기 / Open the GitHub issue]({url})\n## 3. 내려받은 파일을 GitHub 이슈 입력란에 끌어다 놓고 제출 / Drag the downloaded file into the GitHub issue and submit"
         }
     }
 }

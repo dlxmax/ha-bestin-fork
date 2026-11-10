@@ -1,6 +1,6 @@
 """문제 신고와 진단 도우미 / Problem report and diagnostics helpers.
 
-설정 > 기기 및 서비스 > BESTIN > 구성 > '문제 신고' 메뉴와 진단 다운로드가
+설정 > 기기 및 서비스 > BESTIN > ⚙ (톱니바퀴) > '문제 신고' 메뉴와 진단 다운로드가
 같은 요약을 씁니다. 통합은 아무것도 전송하지 않습니다. 사용자가 링크를 열어
 GitHub 에서 직접 확인하고 제출합니다.
 
@@ -300,6 +300,79 @@ def gateway_snapshot(hub: Any) -> dict[str, Any]:
 # ----------------------------------------------------------------------
 
 
+class Block(str):
+    """요약 블록과 버리는 순서 / A summary block and when it gets dropped.
+
+    링크가 너무 길면 drop 값이 큰 블록부터 버립니다. 일반 문자열은 0 이고,
+    같은 값끼리는 뒤에 있는 것부터 버립니다.
+    When the link is too long, blocks with a higher ``drop`` go first. Plain
+    strings count as 0; among equals the later block goes first.
+    """
+
+    drop: int = 0
+
+    def __new__(cls, text: str, drop: int = 0) -> "Block":
+        obj = super().__new__(cls, text)
+        obj.drop = drop
+        return obj
+
+
+# 버리는 순서 / Drop order: request history first, warnings and the device
+# table last.
+_DROP_TABLE = 1
+_DROP_WARNINGS = 2
+_DROP_LOGIN = 3
+_DROP_LOG = 4
+_DROP_SAMPLES = 5
+_DROP_EVENTS = 6
+
+
+def _room_span(rooms: list[int]) -> str:
+    """[1, 2, 3, 5] -> "1-3,5"."""
+    parts: list[str] = []
+    start = prev = rooms[0]
+    for room in rooms[1:] + [None]:
+        if room is not None and room == prev + 1:
+            prev = room
+            continue
+        parts.append(f"{start}-{prev}" if prev != start else str(start))
+        if room is not None:
+            start = prev = room
+    return ",".join(parts)
+
+
+def _status_rows(status: dict[str, Any]) -> list[list[Any]]:
+    """방마다 같은 결과는 한 줄로 묶습니다 / Rooms with the same result share a row.
+
+    예: light:1 부터 light:6 까지 모두 empty 면 "light:1-6" 한 줄입니다.
+    For example light:1 to light:6 all empty becomes one "light:1-6" row.
+    """
+    groups: dict[tuple, dict[str, Any]] = {}
+    for key, st in sorted(status.items()):
+        cls, _, room = key.partition(":")
+        values = (
+            st.get("result"),
+            st.get("rows"),
+            "yes" if st.get("ever_ok") else "no",
+            st.get("fail_streak") or "",
+            "yes" if st.get("backed_off") else "",
+        )
+        group = groups.setdefault((cls, room.isdigit(), values), {"rooms": [], "keys": [], "at": ""})
+        group["keys"].append(key)
+        if room.isdigit():
+            group["rooms"].append(int(room))
+        group["at"] = max(group["at"], str(st.get("at", "")))
+    rows = []
+    for (cls, numbered, values), group in groups.items():
+        if numbered and len(group["rooms"]) > 1:
+            names = [f"{cls}:{_room_span(sorted(group['rooms']))}"]
+        else:
+            names = group["keys"]
+        for name in names:
+            rows.append([name, *values, group["at"][11:19]])
+    return sorted(rows, key=lambda row: row[0])
+
+
 def _table(headers: list[str], rows: list[list[Any]]) -> str:
     lines = ["| " + " | ".join(headers) + " |", "|" + "---|" * len(headers)]
     for row in rows:
@@ -310,11 +383,11 @@ def _table(headers: list[str], rows: list[list[Any]]) -> str:
 def build_summary_blocks(snapshot: dict[str, Any]) -> list[str]:
     """이미 가린 진단 데이터로 Markdown 요약 블록을 만듭니다.
 
-    중요한 것부터 순서대로 돌려줍니다. 링크가 너무 길면 뒤에서부터 버립니다.
+    보여줄 순서대로 돌려줍니다. 링크가 너무 길면 Block.drop 이 큰 것부터 버립니다.
 
     Build Markdown summary blocks from an already-scrubbed diagnostics
-    snapshot, most important first. When the link is too long, blocks are
-    dropped from the end.
+    snapshot, in display order. When the link is too long, blocks with the
+    highest Block.drop are left out first.
     """
     info = snapshot.get("integration", {})
     blocks: list[str] = []
@@ -351,30 +424,19 @@ def build_summary_blocks(snapshot: dict[str, Any]) -> list[str]:
             f"The state below is from the failed setup attempt at {gw.get('saved_at', '?')}._"
         )
     if kind == "iparkapp":
-        status = gw.get("status") or {}
-        rows = [
-            [
-                key,
-                st.get("result"),
-                st.get("rows"),
-                "yes" if st.get("ever_ok") else "no",
-                st.get("fail_streak") or "",
-                "yes" if st.get("backed_off") else "",
-                st.get("at", "")[11:19],
-            ]
-            for key, st in sorted(status.items())
-        ]
+        rows = _status_rows(gw.get("status") or {})
         if rows:
-            blocks.append(
+            blocks.append(Block(
                 "**장치별 마지막 응답 / Last reply per device**\n\n"
-                + _table(["device", "result", "rows", "ever ok", "fails", "backed off", "time"], rows)
-            )
+                + _table(["device", "result", "rows", "ever ok", "fails", "backed off", "time"], rows),
+                _DROP_TABLE,
+            ))
         if gw.get("login"):
-            blocks.append(f"**로그인 / Login:** `{gw['login']}`")
+            blocks.append(Block(f"**로그인 / Login:** `{gw['login']}`", _DROP_LOGIN))
         samples = gw.get("last_bad_reply") or {}
         if samples:
             text = "\n".join(f"{key}: {val[:300]}" for key, val in sorted(samples.items())[:4])
-            blocks.append("**실패 응답 예시 / Failed reply samples**\n```\n" + text + "\n```")
+            blocks.append(Block("**실패 응답 예시 / Failed reply samples**\n```\n" + text + "\n```", _DROP_SAMPLES))
     elif kind == "rs485":
         blocks.append(
             f"**RS-485:** mode `{gw.get('gateway_type')}`, rooms `{gw.get('room_to_command')}`, "
@@ -387,10 +449,11 @@ def build_summary_blocks(snapshot: dict[str, Any]) -> list[str]:
             for key, c in sorted(types.items(), key=lambda kv: -kv[1].get("seen", 0))[:15]
         ]
         if rows:
-            blocks.append(
+            blocks.append(Block(
                 "**패킷 종류 / Packet types**\n\n"
-                + _table(["header/len/cmd", "seen", "bad checksum", "handled", "ignored"], rows)
-            )
+                + _table(["header/len/cmd", "seen", "bad checksum", "handled", "ignored"], rows),
+                _DROP_TABLE,
+            ))
     elif kind == "center":
         feats = ", ".join(f"{f.get('name')}×{f.get('quantity')}" for f in gw.get("features") or [])
         blocks.append(
@@ -400,7 +463,7 @@ def build_summary_blocks(snapshot: dict[str, Any]) -> list[str]:
         msgs = gw.get("elevator_messages") or []
         if msgs:
             text = "\n".join(str(m)[:200] for m in msgs[-6:])
-            blocks.append("**엘리베이터 메시지 / Elevator messages**\n```\n" + text + "\n```")
+            blocks.append(Block("**엘리베이터 메시지 / Elevator messages**\n```\n" + text + "\n```", _DROP_TABLE))
 
     def log_lines(records: list[dict[str, str]]) -> str:
         return "\n".join(
@@ -412,16 +475,17 @@ def build_summary_blocks(snapshot: dict[str, Any]) -> list[str]:
 
     warnings = snapshot.get("warnings") or []
     if warnings:
-        blocks.append(
+        blocks.append(Block(
             "**최근 경고와 오류 / Recent warnings and errors**\n```\n"
             + log_lines(warnings[-8:])
-            + "\n```"
-        )
+            + "\n```",
+            _DROP_WARNINGS,
+        ))
     # 경고 블록에 이미 있는 줄은 빼고 보여줍니다 / Skip lines already shown above.
     shown = {(r.get("time"), r.get("message")) for r in warnings[-8:]}
     log = [r for r in snapshot.get("log") or [] if (r.get("time"), r.get("message")) not in shown]
     if log:
-        blocks.append("**최근 로그 / Recent log**\n```\n" + log_lines(log[-10:]) + "\n```")
+        blocks.append(Block("**최근 로그 / Recent log**\n```\n" + log_lines(log[-10:]) + "\n```", _DROP_LOG))
 
     events = gw.get("events") or []
     if events:
@@ -429,14 +493,14 @@ def build_summary_blocks(snapshot: dict[str, Any]) -> list[str]:
             " ".join(f"{k}={v}" for k, v in ev.items() if v not in (None, ""))[:200]
             for ev in events[-10:]
         )
-        blocks.append("**최근 요청 / Recent requests**\n```\n" + text + "\n```")
+        blocks.append(Block("**최근 요청 / Recent requests**\n```\n" + text + "\n```", _DROP_EVENTS))
     return blocks
 
 
 _ATTACH_NOTE = (
-    "_전체 진단 파일: 설정 > 기기 및 서비스 > BESTIN > ⋮ > 진단 다운로드 후 이 칸에 "
+    "_전체 진단 파일: 설정 > 기기 및 서비스 > BESTIN > ⋮ (점 세 개) > 진단 다운로드 후 이 칸에 "
     "끌어다 놓아 주세요. / Full diagnostics: Settings > Devices & services > "
-    "BESTIN > ⋮ > Download diagnostics, then drag the file here._"
+    "BESTIN > ⋮ (three dots) > Download diagnostics, then drag the file here._"
 )
 
 
@@ -456,8 +520,8 @@ def build_issue_url(
     길이를 넘으면 요약 블록을 뒤에서부터 버리고, 그래도 넘으면 사용자 글을
     자릅니다. 사용자 글보다 요약을 먼저 줄입니다.
 
-    Over budget, summary blocks go first (from the end); only then is the
-    user's own text cut.
+    Over budget, summary blocks go first (highest ``Block.drop`` first, then
+    from the end); only then is the user's own text cut.
     """
     user_text = (user_text or "").strip() or "(GitHub 에서 작성 / to be written on GitHub)"
 
@@ -474,10 +538,19 @@ def build_issue_url(
             parts.append(_ATTACH_NOTE)
         return "\n\n".join(parts)
 
+    order = sorted(
+        range(len(blocks)),
+        key=lambda i: (getattr(blocks[i], "drop", 0), i),
+        reverse=True,
+    )
+    dropped: set[int] = set()
     kept = list(blocks)
     body = compose(user_text, kept)
-    while kept and len(_issue_url(title, body)) > budget:
-        kept.pop()
+    for index in order:
+        if len(_issue_url(title, body)) <= budget:
+            break
+        dropped.add(index)
+        kept = [b for i, b in enumerate(blocks) if i not in dropped]
         body = compose(user_text, kept)
     cut = user_text
     while len(_issue_url(title, body)) > budget and len(cut) > 20:

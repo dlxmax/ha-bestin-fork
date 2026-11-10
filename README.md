@@ -130,12 +130,12 @@ iPark 스마트홈 앱 / 클라우드 옵션은 별도의 하드웨어가 필요
 로그 설정 없이 바로 신고할 수 있습니다 (v1.4.23 부터).  
 *No logger setup needed (v1.4.23 and later).*
 
-1. **설정 > 기기 및 서비스 > BESTIN > 구성 > 문제 신고** 를 고르고, 무엇이 안 되는지 적습니다 (비워 두어도 됩니다).  
-   *Settings > Devices & services > BESTIN > Configure > Report a problem, and describe what is not working (optional).*
-2. 다음 화면의 **GitHub 이슈 열기** 링크를 엽니다. 버전, 연결 방식, 장치별 마지막 응답, 최근 오류가 미리 채워져 있습니다. 내용을 확인한 뒤 제출해 주세요.  
-   *Open the **Open the GitHub issue** link on the next screen. The version, connection type, last reply per device and recent errors are filled in. Review it, then submit.*
-3. 가능하면 **BESTIN > ⋮ > 진단 다운로드** 로 받은 파일도 이슈에 끌어다 놓아 주세요.  
-   *If you can, also drag in the file from **BESTIN > ⋮ > Download diagnostics**.*
+1. **설정 > 기기 및 서비스 > BESTIN > ⚙ (톱니바퀴) > 문제 신고** 를 고르고, 무엇이 안 되는지 적습니다 (비워 두어도 됩니다).  
+   *Settings > Devices & services > BESTIN > ⚙ (gear icon) > Report a problem, and describe what is not working (optional).*
+2. 다음 화면에서 **진단 파일 내려받기** 를 누른 뒤 **GitHub 이슈 열기** 를 엽니다. 버전, 연결 방식, 장치별 마지막 응답, 최근 오류가 미리 채워져 있습니다.  
+   *On the next screen, click **Download the diagnostics file**, then **Open the GitHub issue**. The version, connection type, last reply per device and recent errors are filled in.*
+3. 내려받은 파일을 이슈에 끌어다 놓고, 내용을 확인한 뒤 제출해 주세요. 내려받기 링크가 안 되면 **BESTIN > ⋮ (점 세 개) > 진단 다운로드** 로 받을 수 있습니다.  
+   *Drag the downloaded file into the issue, review it, then submit. If the download link fails, use **BESTIN > ⋮ (three dots) > Download diagnostics**.*
 
 비밀번호, 아이디, IP, 좌표, 세션, 동·호수는 가려집니다. 단지 코드와 이름은 단지별 서버 차이를 구분하려고 남깁니다. BESTIN 은 아무것도 자동으로 보내지 않습니다.  
 *Passwords, IDs, IPs, coordinates, sessions and your unit number are hidden. The complex code and name stay, to tell one complex's server from another. BESTIN never sends anything by itself.*

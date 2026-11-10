@@ -115,7 +115,7 @@
             }
         },
         "abort": {
-            "report_ready": "## [👉 Open the GitHub issue]({url})\n\n1. Download diagnostics: Settings > Devices & services > BESTIN > ⋮ > Download diagnostics\n2. Open the link above (needs a GitHub login) and review the text.\n3. Drag the diagnostics file into the issue box and submit.\n\n---\n\nWhat the link contains:\n\n{summary}"
+            "report_ready": "## 1. ⬇ Download the diagnostics file: {diag}\n## 2. [👉 Open the GitHub issue]({url})\n## 3. Drag the downloaded file into the GitHub issue and submit\n\n**The Close button only closes this window and sends nothing.** Click 1 and 2 first.\n\nYou need a GitHub login. The download link works for 10 minutes. If it fails: Settings > Devices & services > BESTIN > ⋮ (three dots) > Download diagnostics\n\n---\n\nWhat the link contains:\n\n{summary}\n\n---\n\n## 1. ⬇ Download the diagnostics file: {diag}\n## 2. [👉 Open the GitHub issue]({url})\n## 3. Drag the downloaded file into the GitHub issue and submit"
         }
     }
 }
