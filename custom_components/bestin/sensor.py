@@ -70,11 +70,15 @@ DEVICE_CLASS = {
     "energy:avggas": SensorDeviceClass.GAS,
     "energy:minewater": SensorDeviceClass.WATER,
     "energy:avgwater": SensorDeviceClass.WATER,
-    # "온수"/"난방" 유량계에 맞는 HA device_class가 없습니다. 아래 로컬 푸시
-    # 방식의 hotwater:total/heat:total 항목과 동일한 상황입니다.
+    # 온수는 물 사용량(m³)이므로 water 로 둡니다. 그래야 에너지 대시보드의
+    # 물 사용량에 추가할 수 있습니다. "난방" 유량계에 맞는 HA device_class 는
+    # 없습니다 (로컬 푸시 방식의 heat:total 항목과 동일).
     #
-    # No HA device class fits "hot water"/"heating" volume meters, same as
-    # their local-push hotwater:total/heat:total counterparts below.
+    # Hot water is water use in m³, so it gets the water class; that lets it
+    # be added to the Energy dashboard's water consumption. No HA device class
+    # fits the "heating" volume meter (same as the local heat:total).
+    "energy:minehwater": SensorDeviceClass.WATER,
+    "energy:avghwater": SensorDeviceClass.WATER,
 }
 
 DEVICE_UNIT = {
