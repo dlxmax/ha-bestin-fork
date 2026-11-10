@@ -244,6 +244,69 @@ err_secret = ValueError(f"cannot reach {SERVER_IP} as {USER}")
 leak = "\n".join(report.flow_error_blocks("iparkapp_login", err_secret, "1.4.23", "x", SECRETS))
 check("flow report hides IP and user", (SERVER_IP in leak, USER in leak), (False, False))
 
+# --- entry.data is a read-only mapping, not a dict (missed in v1.4.23) ---------
+from types import MappingProxyType
+proxy_secrets = report.collect_secrets(MappingProxyType(ENTRY_DATA))
+check("secrets found inside a mappingproxy", (PASSWORD in proxy_secrets, SERVER_IP in proxy_secrets), (True, True))
+check("password inside a log line scrubbed", PASSWORD in report.scrub_text(f"login failed for pw {PASSWORD}", proxy_secrets), False)
+check("mappingproxy keys redacted", report.scrub_obj(MappingProxyType(ENTRY_DATA))["iparkapp_password"], report.REDACTED)
+
+# --- log buffers: a debug flood keeps the warning -----------------------------
+ring = report.LogRing()
+own = logging.getLogger(report._PACKAGE + ".testring")
+own.setLevel(logging.DEBUG)
+own.propagate = False
+own.addHandler(ring)
+own.warning("Session prime failed: timeout")
+for i in range(500):
+    own.debug("poll %d", i)
+check("debug flood fills the general log", len(ring.records), 200)
+check("warning survives the flood", [r["message"] for r in ring.warnings], ["Session prime failed: timeout"])
+for i in range(80):
+    own.error("err %d", i)
+check("warnings buffer is capped", len(ring.warnings), 50)
+
+# An error HA logs under its own logger, raised in a BESTIN frame.
+foreign = report._ForeignErrors(ring)
+_scope2 = {}
+exec(
+    compile("def set_temp():\n    raise KeyError('room 7')\n", "/config/custom_components/bestin/climate.py", "exec"),
+    _scope2,
+)
+try:
+    _scope2["set_temp"]()
+except KeyError:
+    rec = logging.LogRecord("homeassistant.helpers.entity", logging.ERROR, "x", 1, "Error calling service", None, sys.exc_info())
+foreign.emit(rec)
+last = ring.warnings[-1]
+check("foreign BESTIN error captured", (last.get("logger"), "climate.py:2 set_temp" in last["message"]), ("homeassistant.helpers.entity", True))
+try:
+    raise RuntimeError("zwave broke")
+except RuntimeError:
+    other = logging.LogRecord("homeassistant.components.zwave_js", logging.ERROR, "x", 1, "unrelated", None, sys.exc_info())
+before = len(ring.warnings)
+foreign.emit(other)
+check("unrelated errors ignored", len(ring.warnings), before)
+own_rec = logging.LogRecord(report._PACKAGE, logging.ERROR, "x", 1, "own", None, (KeyError, KeyError("k"), rec.exc_info[2]))
+foreign.emit(own_rec)
+check("own logger not counted twice", len(ring.warnings), before)
+
+# Summary puts warnings first and doesn't repeat them in the general log.
+diag_w = dict(diag)
+diag_w["warnings"] = [{"time": "2026-11-10T10:00:00", "level": "WARNING", "message": "Session prime failed"}]
+diag_w["log"] = diag_w["warnings"] + [{"time": "2026-11-10T10:00:05", "level": "DEBUG", "message": "poll 1"}]
+wsum = "\n\n".join(report.build_summary_blocks(diag_w))
+check("warnings block present", "Recent warnings and errors" in wsum, True)
+check("warning shown once", wsum.count("Session prime failed"), 1)
+check("warnings before general log", wsum.index("Recent warnings") < wsum.index("Recent log"), True)
+
+# State saved from a failed setup is labelled.
+diag_f = dict(diag)
+diag_f["gateway"] = dict(clean["gateway"], from_failed_setup=True, saved_at="2026-11-10T09:59:00")
+fsum = "\n\n".join(report.build_summary_blocks(diag_f))
+check("failed-setup state labelled", "failed setup attempt at 2026-11-10T09:59:00" in fsum, True)
+check("failed-setup table still shown", "| light:1 | deny |" in fsum, True)
+
 if failures:
     print("\nFAILURES:", failures)
     sys.exit(1)

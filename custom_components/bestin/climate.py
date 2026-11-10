@@ -80,6 +80,13 @@ class BestinClimate(BestinDevice, RestoreEntity, ClimateEntity):
     # Maps preset_mode dropdown options to mdi icons (vacation→airplane,
     # frost→snowflake, etc.) via icons.json.
     _attr_translation_key = "thermostat"
+    # HA 2026.11 부터는 단위와 온도를 native_ 이름으로 읽습니다. 옛 이름은
+    # 2027.11 에 없어지므로, 새 이름이 없는 옛 HA 에서만 옛 이름을 씁니다.
+    # HA 2026.11 reads the unit and temperatures under native_ names; the old
+    # names go away in 2027.11, so they are set only on older HA.
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
+    if not hasattr(ClimateEntity, "native_temperature_unit"):
+        _attr_temperature_unit = UnitOfTemperature.CELSIUS
 
     def __init__(self, device, hub: BestinHub):
         """Initialize the climate."""
@@ -204,7 +211,7 @@ class BestinClimate(BestinDevice, RestoreEntity, ClimateEntity):
         
         if self._version_exists:
             state = STATE_ON if hvac_mode == HVACMode.HEAT else STATE_OFF
-            temp_payload = "{}/{}".format(state, self.target_temperature)
+            temp_payload = "{}/{}".format(state, self.native_target_temperature)
             await self.enqueue_command(room=temp_payload)
         else:
             await self.enqueue_command(mode=hvac_mode == HVACMode.HEAT)
@@ -266,14 +273,20 @@ class BestinClimate(BestinDevice, RestoreEntity, ClimateEntity):
         return attrs
 
     @property
-    def current_temperature(self) -> float:
+    def native_current_temperature(self) -> float:
         """Return the current temperature."""
         return self._device_info.state[ATTR_CURRENT_TEMPERATURE]
 
     @property
-    def target_temperature(self) -> float:
+    def native_target_temperature(self) -> float:
         """Return the target temperature."""
         return self._device_info.state[SERVICE_SET_TEMPERATURE]
+
+    # 옛 HA (2026.11 이전) 는 native_ 이름을 모르므로 옛 이름으로도 줍니다.
+    # Older HA (before 2026.11) has no native_ names, so give the old ones too.
+    if not hasattr(ClimateEntity, "native_current_temperature"):
+        current_temperature = native_current_temperature
+        target_temperature = native_target_temperature
 
     async def async_set_temperature(self, **kwargs) -> None:
         """Set new target temperature."""
@@ -282,15 +295,10 @@ class BestinClimate(BestinDevice, RestoreEntity, ClimateEntity):
         temperature = float(kwargs[ATTR_TEMPERATURE])
         
         if self._version_exists:
-            temp_payload = "{}/{}/{}".format(STATE_ON, temperature, self.current_temperature)
+            temp_payload = "{}/{}/{}".format(STATE_ON, temperature, self.native_current_temperature)
             await self.enqueue_command(room=temp_payload)
         else:
             await self.enqueue_command(set_temperature=temperature)
-
-    @property
-    def temperature_unit(self) -> UnitOfTemperature:
-        """Return the unit of measurement."""
-        return UnitOfTemperature.CELSIUS
 
     @property
     def max_temp(self) -> int:

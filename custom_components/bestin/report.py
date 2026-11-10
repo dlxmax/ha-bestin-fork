@@ -18,6 +18,7 @@ import logging
 import re
 import traceback
 from collections import deque
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Iterable
 from urllib.parse import quote
@@ -31,6 +32,11 @@ URL_BUDGET = 7000
 REDACTED = "**REDACTED**"
 # hass.data 키: 항목별 마지막 설정 실패 / hass.data key: last setup failure per entry.
 SETUP_ERRORS_KEY = "bestin_setup_errors"
+# hass.data 키: 설정에 실패한 허브의 마지막 게이트웨이 상태.
+# hass.data key: gateway state of the hub whose setup last failed.
+FAILED_GATEWAY_KEY = "bestin_failed_gateway"
+# 통합 로거 이름 / The integration's logger name ("custom_components.bestin").
+_PACKAGE = __package__ or "custom_components.bestin"
 
 # 값 전체를 가리는 키 / Keys whose whole value is hidden.
 TO_REDACT: set[str] = {
@@ -86,7 +92,11 @@ def collect_secrets(*sources: Any) -> list[str]:
     found: set[str] = set()
 
     def walk(obj: Any, hidden: bool) -> None:
-        if isinstance(obj, dict):
+        # entry.data 는 dict 가 아닌 읽기 전용 Mapping 입니다 (v1.4.23 은 이를
+        # 놓쳐 비밀번호와 호스트를 다른 문자열에서 가리지 못했습니다).
+        # entry.data is a read-only Mapping, not a dict; v1.4.23 missed that
+        # and so never searched other strings for the password or host.
+        if isinstance(obj, Mapping):
             for key, val in obj.items():
                 walk(val, hidden or str(key) in TO_REDACT)
         elif isinstance(obj, (list, tuple, set)):
@@ -131,7 +141,7 @@ def scrub_obj(obj: Any, secrets: Iterable[str] = ()) -> Any:
     secrets = list(secrets)
 
     def walk(value: Any) -> Any:
-        if isinstance(value, dict):
+        if isinstance(value, Mapping):
             result = {}
             for key, val in value.items():
                 skey = key if isinstance(key, str) else ":".join(map(str, key)) if isinstance(key, tuple) else str(key)
@@ -160,44 +170,129 @@ def scrub_obj(obj: Any, secrets: Iterable[str] = ()) -> Any:
 # ----------------------------------------------------------------------
 
 
+def _bestin_frames(tb: Any, limit: int = 3) -> str:
+    """traceback 중 BESTIN 파일의 마지막 줄들 / Last traceback frames in BESTIN files."""
+    try:
+        frames = [
+            frame
+            for frame in traceback.extract_tb(tb)
+            if "/bestin/" in frame.filename.replace("\\", "/")
+        ][-limit:]
+    except Exception:  # noqa: BLE001
+        return ""
+    return " < ".join(
+        f"{frame.filename.replace(chr(92), '/').rsplit('/', 1)[-1]}:{frame.lineno} {frame.name}"
+        for frame in reversed(frames)
+    )
+
+
+def _record_entry(record: logging.LogRecord) -> dict[str, str]:
+    try:
+        message = record.getMessage()
+    except Exception:  # noqa: BLE001 / a bad format string must not raise
+        message = str(record.msg)
+    if record.exc_info and record.exc_info[1] is not None:
+        exc = record.exc_info[1]
+        message += f" [{type(exc).__name__}: {exc}]"
+        where = _bestin_frames(exc.__traceback__)
+        if where:
+            message += f" at {where}"
+    entry = {
+        "time": datetime.fromtimestamp(record.created).isoformat(timespec="seconds"),
+        "level": record.levelname,
+        "message": message[:600],
+    }
+    if not record.name.startswith(_PACKAGE):
+        entry["logger"] = record.name
+    return entry
+
+
 class LogRing(logging.Handler):
     """최근 로그를 메모리에만 보관합니다 / Keeps recent log records in memory.
 
-    로거 수준과 상관없이 통합이 남기는 경고와 오류 (기본 HA 설정에서 보이는
-    것) 를 담습니다. 디버그 로그를 켜 두었다면 그것도 담깁니다.
+    ``records`` 는 로거 수준이 허용하는 모든 줄 (기본 HA 설정에서는 info
+    이상, 디버그 로그를 켜면 디버그까지) 을, ``warnings`` 는 경고와 오류만
+    따로 담습니다. 디버그 줄이 몇 분 만에 ``records`` 를 채워도 원인이 된
+    경고는 ``warnings`` 에 남습니다. 둘 다 크기가 고정이라 늘어나지 않습니다.
 
-    Holds what the integration logs at the level the logger is set to
-    (warnings and errors on a default HA install, debug when enabled).
+    ``records`` holds whatever the logger level lets through (info and up on
+    a default install, debug while debug logging is on). ``warnings`` keeps
+    warnings and errors separately, so a debug flood that fills ``records``
+    within minutes can't push out the warning that mattered. Both are fixed
+    size.
     """
 
-    def __init__(self, maxlen: int = 200) -> None:
+    def __init__(self, maxlen: int = 200, warn_maxlen: int = 50) -> None:
         super().__init__(logging.DEBUG)
         self.records: deque[dict[str, str]] = deque(maxlen=maxlen)
+        self.warnings: deque[dict[str, str]] = deque(maxlen=warn_maxlen)
 
     def emit(self, record: logging.LogRecord) -> None:
-        try:
-            message = record.getMessage()
-        except Exception:  # noqa: BLE001 / a bad format string must not raise
-            message = str(record.msg)
-        if record.exc_info and record.exc_info[1] is not None:
-            exc = record.exc_info[1]
-            message += f" [{type(exc).__name__}: {exc}]"
-        self.records.append(
-            {
-                "time": datetime.fromtimestamp(record.created).isoformat(timespec="seconds"),
-                "level": record.levelname,
-                "message": message[:600],
-            }
-        )
+        entry = _record_entry(record)
+        self.records.append(entry)
+        if record.levelno >= logging.WARNING:
+            self.warnings.append(entry)
+
+
+class _ForeignErrors(logging.Handler):
+    """다른 로거가 남긴 BESTIN 오류 / BESTIN errors logged by other loggers.
+
+    엔티티 서비스 호출이나 HA 작업 안에서 BESTIN 코드가 예외를 던지면 HA 가
+    자기 로거 (``homeassistant.helpers.entity`` 등) 로 남깁니다. 루트 로거에서
+    오류 수준이고 traceback 에 BESTIN 파일이 있는 기록만 ``LOG_RING`` 에
+    넣습니다. 통합 로거의 기록은 이미 담았으므로 건너뜁니다.
+
+    When BESTIN code raises inside an entity service call or an HA task, HA
+    logs it under its own logger. On the root logger, this keeps only
+    error-level records whose traceback runs through a BESTIN file. Records
+    from the integration's own logger are already captured and skipped.
+    """
+
+    def __init__(self, ring: LogRing) -> None:
+        super().__init__(logging.ERROR)
+        self.ring = ring
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.name.startswith(_PACKAGE):
+            return
+        exc = record.exc_info[1] if record.exc_info else None
+        if exc is None or not _bestin_frames(exc.__traceback__, limit=1):
+            return
+        self.ring.emit(record)
 
 
 LOG_RING = LogRing()
+_FOREIGN_ERRORS = _ForeignErrors(LOG_RING)
 
 
 def install_log_ring(logger: logging.Logger) -> None:
     """``LOG_RING`` 을 한 번만 붙입니다 / Attach ``LOG_RING`` once."""
     if LOG_RING not in logger.handlers:
         logger.addHandler(LOG_RING)
+    root = logging.getLogger()
+    if _FOREIGN_ERRORS not in root.handlers:
+        root.addHandler(_FOREIGN_ERRORS)
+
+
+def gateway_snapshot(hub: Any) -> dict[str, Any]:
+    """허브의 게이트웨이 상태 (가리기 전) / Gateway state of a hub, not yet scrubbed."""
+    api = getattr(hub, "api", None)
+    snapshot: dict[str, Any] = {}
+    if api is not None and hasattr(api, "diagnostics_snapshot"):
+        try:
+            snapshot = api.diagnostics_snapshot()
+        except Exception as ex:  # noqa: BLE001 / diagnostics must never fail
+            snapshot = {"snapshot_error": f"{type(ex).__name__}: {ex}"}
+    connection = getattr(hub, "connection", None)
+    if connection is not None:
+        snapshot.setdefault("kind", "rs485")
+        snapshot["hub_gateway_mode"] = getattr(hub, "gateway_mode", None)
+        try:
+            snapshot.setdefault("connected", connection.is_connected())
+        except Exception:  # noqa: BLE001
+            pass
+        snapshot.setdefault("reconnect_attempts", getattr(connection, "reconnect_attempts", None))
+    return snapshot
 
 
 # ----------------------------------------------------------------------
@@ -250,6 +345,11 @@ def build_summary_blocks(snapshot: dict[str, Any]) -> list[str]:
 
     gw = snapshot.get("gateway") or {}
     kind = gw.get("kind")
+    if gw.get("from_failed_setup"):
+        blocks.append(
+            f"_아래 상태는 실패한 설정 시도 ({gw.get('saved_at', '?')}) 에서 가져왔습니다. / "
+            f"The state below is from the failed setup attempt at {gw.get('saved_at', '?')}._"
+        )
     if kind == "iparkapp":
         status = gw.get("status") or {}
         rows = [
@@ -302,13 +402,26 @@ def build_summary_blocks(snapshot: dict[str, Any]) -> list[str]:
             text = "\n".join(str(m)[:200] for m in msgs[-6:])
             blocks.append("**엘리베이터 메시지 / Elevator messages**\n```\n" + text + "\n```")
 
-    log = snapshot.get("log") or []
-    if log:
-        text = "\n".join(
-            f"{r.get('time', '')[11:19]} {r.get('level', '')[:4]} {r.get('message', '')[:200]}"
-            for r in log[-10:]
+    def log_lines(records: list[dict[str, str]]) -> str:
+        return "\n".join(
+            f"{r.get('time', '')[5:19].replace('T', ' ')} {r.get('level', '')[:4]} "
+            + (f"[{r['logger']}] " if r.get("logger") else "")
+            + r.get("message", "")[:240]
+            for r in records
         )
-        blocks.append("**최근 로그 / Recent log**\n```\n" + text + "\n```")
+
+    warnings = snapshot.get("warnings") or []
+    if warnings:
+        blocks.append(
+            "**최근 경고와 오류 / Recent warnings and errors**\n```\n"
+            + log_lines(warnings[-8:])
+            + "\n```"
+        )
+    # 경고 블록에 이미 있는 줄은 빼고 보여줍니다 / Skip lines already shown above.
+    shown = {(r.get("time"), r.get("message")) for r in warnings[-8:]}
+    log = [r for r in snapshot.get("log") or [] if (r.get("time"), r.get("message")) not in shown]
+    if log:
+        blocks.append("**최근 로그 / Recent log**\n```\n" + log_lines(log[-10:]) + "\n```")
 
     events = gw.get("events") or []
     if events:

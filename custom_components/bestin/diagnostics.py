@@ -24,15 +24,18 @@ from homeassistant.loader import async_get_integration
 from .const import CONF_SESSION, DOMAIN
 from .iparkapp_const import CONF_IPARKAPP_SITE
 from .report import (
+    FAILED_GATEWAY_KEY,
     LOG_RING,
     SETUP_ERRORS_KEY,
     TO_REDACT,
     build_issue_url,
     build_summary_blocks,
     collect_secrets,
+    gateway_snapshot,
     issue_title,
     scrub_obj,
 )
+
 
 def gateway_kind(entry: ConfigEntry) -> str:
     """연결 방식 이름 / Short name of the connection type."""
@@ -54,24 +57,28 @@ async def integration_version(hass: HomeAssistant) -> str | None:
     return str(integration.version) if integration.version else None
 
 
-def _gateway_snapshot(hub: Any) -> dict[str, Any]:
-    api = getattr(hub, "api", None)
-    snapshot: dict[str, Any] = {}
-    if api is not None and hasattr(api, "diagnostics_snapshot"):
-        try:
-            snapshot = api.diagnostics_snapshot()
-        except Exception as ex:  # noqa: BLE001
-            snapshot = {"snapshot_error": f"{type(ex).__name__}: {ex}"}
-    connection = getattr(hub, "connection", None)
-    if connection is not None:
-        snapshot.setdefault("kind", "rs485")
-        snapshot["hub_gateway_mode"] = getattr(hub, "gateway_mode", None)
-        try:
-            snapshot.setdefault("connected", connection.is_connected())
-        except Exception:  # noqa: BLE001
-            pass
-        snapshot.setdefault("reconnect_attempts", getattr(connection, "reconnect_attempts", None))
-    return snapshot
+def _secrets(hass: HomeAssistant) -> list[str]:
+    """모든 BESTIN 항목의 비밀 값 / Secret values of every BESTIN entry.
+
+    로그 기록은 항목끼리 함께 쓰므로, 다른 항목 (예: RS-485 와 iPark 를 함께
+    쓰는 집) 의 아이디나 IP 도 가려야 합니다.
+    The log buffer is shared by all entries, so another entry's user ID or
+    host (a home with both RS-485 and iPark set up) must be hidden too.
+    """
+    sources: list[Any] = []
+    for other in hass.config_entries.async_entries(DOMAIN):
+        sources.append(other.data)
+        sources.append({"unique_id": other.unique_id, "title": other.title})
+    return sorted(set(collect_secrets(*sources)), key=len, reverse=True)
+
+
+def _gateway(hass: HomeAssistant, entry: ConfigEntry, hub: Any) -> dict[str, Any]:
+    if hub is not None:
+        return gateway_snapshot(hub)
+    # 설정에 실패해 허브가 없으면, 실패 직전에 남긴 상태를 씁니다.
+    # No hub because setup failed: use the state saved just before it went.
+    failed = hass.data.get(FAILED_GATEWAY_KEY, {}).get(entry.entry_id)
+    return dict(failed) if failed else {}
 
 
 def _devices(hub: Any) -> list[dict[str, Any]]:
@@ -116,9 +123,7 @@ def _entities(hass: HomeAssistant, entry: ConfigEntry) -> tuple[dict, list]:
 
 async def async_collect(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
     """가린 진단 데이터 전체 / The full, redacted diagnostics data."""
-    secrets = collect_secrets(
-        entry.data, {"unique_id": entry.unique_id, "title": entry.title}
-    )
+    secrets = _secrets(hass)
     hub = hass.data.get(DOMAIN, {}).get(entry.entry_id)
     site = entry.data.get(CONF_IPARKAPP_SITE) or {}
     counts, entity_rows = _entities(hass, entry)
@@ -137,10 +142,11 @@ async def async_collect(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, An
             "data": async_redact_data(dict(entry.data), TO_REDACT),
             "options": async_redact_data(dict(entry.options), TO_REDACT),
         },
-        "gateway": _gateway_snapshot(hub) if hub is not None else {},
+        "gateway": _gateway(hass, entry, hub),
         "entities": counts,
         "entity_states": entity_rows,
         "devices": _devices(hub),
+        "warnings": list(LOG_RING.warnings),
         "log": list(LOG_RING.records),
     }
     return scrub_obj(snapshot, secrets)
@@ -151,10 +157,7 @@ async def async_build_report(
 ) -> tuple[str, str]:
     """문제 신고 링크와 본문 / The problem-report link and its body."""
     snapshot = await async_collect(hass, entry)
-    secrets = collect_secrets(
-        entry.data, {"unique_id": entry.unique_id, "title": entry.title}
-    )
-    user_text = scrub_obj(user_text or "", secrets)
+    user_text = scrub_obj(user_text or "", _secrets(hass))
     info = snapshot["integration"]
     title = issue_title(info.get("gateway"), info.get("version"), user_text)
     return build_issue_url(title, user_text, build_summary_blocks(snapshot))

@@ -235,6 +235,15 @@ def room_sensor_celsius(state: State | None) -> float | None:
         value = (value - 32) * 5 / 9
     return round(value, 2)
 
+def _describe(ex: BaseException) -> str:
+    """오류 종류와 내용 / Error type and message.
+
+    TimeoutError 처럼 내용이 빈 오류도 로그와 문제 신고에 종류가 보이게 합니다.
+    Errors with an empty message, such as TimeoutError, still show their type
+    in the log and in problem reports.
+    """
+    return f"{type(ex).__name__}: {ex}" if str(ex) else type(ex).__name__
+
 class BestinIparkAppAPI:
     """단지 중앙 서버 클라이언트 — Per-complex central-server client.
 
@@ -492,7 +501,7 @@ class BestinIparkAppAPI:
         try:
             await self._poll_all()
         except Exception as ex:  # noqa: BLE001 — log everything so HA shows it
-            LOGGER.exception("폴링 실패 — Polling failed: %s", ex)
+            LOGGER.exception("폴링 실패 / Polling failed: %s", _describe(ex))
         finally:
             self._poll_running = False
 
@@ -501,7 +510,7 @@ class BestinIparkAppAPI:
         try:
             await self._poll_energy()
         except Exception as ex:  # noqa: BLE001
-            LOGGER.exception("에너지 폴링 실패 / Energy polling failed: %s", ex)
+            LOGGER.exception("에너지 폴링 실패 / Energy polling failed: %s", _describe(ex))
 
     @callback
     async def _scheduled_refresh(self, now: datetime) -> None:
@@ -509,7 +518,7 @@ class BestinIparkAppAPI:
         try:
             await self._login()
         except Exception as ex:  # noqa: BLE001
-            LOGGER.exception("세션 갱신 실패 — Session refresh failed: %s", ex)
+            LOGGER.exception("세션 갱신 실패 / Session refresh failed: %s", _describe(ex))
             self._refresh_failures += 1
             if self._refresh_failures >= REFRESH_FAILURES_BEFORE_NOTIFY:
                 async_notify_unavailable(
@@ -599,7 +608,7 @@ class BestinIparkAppAPI:
                     raise IparkAppConnectionError(detail)
                 LOGGER.debug("iParkApp login OK: %s", payload)
         except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as ex:
-            LOGGER.error("로그인 네트워크 오류 — iParkApp login network error: %s", ex)
+            LOGGER.error("로그인 네트워크 오류 / iParkApp login network error: %s", _describe(ex))
             self._last_login = f"network error: {type(ex).__name__}: {ex}"
             self._note("login", result="network_error", error=f"{type(ex).__name__}: {ex}")
             raise IparkAppConnectionError(
@@ -616,7 +625,7 @@ class BestinIparkAppAPI:
             ) as resp:
                 resp.raise_for_status()
         except aiohttp.ClientError as ex:
-            LOGGER.warning("세션 프라이밍 실패 — Session prime failed: %s", ex)
+            LOGGER.warning("세션 프라이밍 실패 / Session prime failed: %s", _describe(ex))
 
     # ------------------------------------------------------------------
     # 저수준 요청 — Low-level requests
@@ -1842,13 +1851,13 @@ async def fetch_directory(session: aiohttp.ClientSession) -> list[dict[str, str]
             resp.raise_for_status()
             body = await resp.text()
     except aiohttp.ClientError as ex:
-        LOGGER.warning("디렉터리 조회 실패 — Directory fetch failed: %s", ex)
+        LOGGER.warning("디렉터리 조회 실패 / Directory fetch failed: %s", _describe(ex))
         return out
 
     try:
         root = ET.fromstring(body)
     except ET.ParseError as ex:
-        LOGGER.warning("디렉터리 XML 파싱 실패 — Directory XML parse failed: %s", ex)
+        LOGGER.warning("디렉터리 XML 파싱 실패 / Directory XML parse failed: %s", _describe(ex))
         return out
 
     for item in root.findall("item"):

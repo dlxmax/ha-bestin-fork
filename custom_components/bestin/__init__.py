@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from datetime import datetime
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
@@ -15,7 +16,13 @@ from .const import DOMAIN, LOGGER, PLATFORMS, CONF_SESSION
 from .errors import BestinIparkAppError, IparkAppAuthError
 from .hub import BestinHub
 from .iparkapp_const import CONF_IPARKAPP_SITE
-from .report import SETUP_ERRORS_KEY, error_text, install_log_ring
+from .report import (
+    FAILED_GATEWAY_KEY,
+    SETUP_ERRORS_KEY,
+    error_text,
+    gateway_snapshot,
+    install_log_ring,
+)
 from .notify import (
     async_clear_unavailable,
     async_notify_auth_failed,
@@ -352,11 +359,13 @@ async def _async_setup_iparkapp(
         # forcing a re-setup then would throw away a working configuration.
         # The notification says plainly what to do if it really is the
         # password.
+        _remember_failed_gateway(hass, entry_id, hub)
         await hub.async_close()
         hass.data[DOMAIN].pop(entry_id, None)
         async_notify_auth_failed(hass, entry, str(ex))
         raise ConfigEntryNotReady(f"iParkApp login rejected: {ex}") from ex
     except BestinIparkAppError as ex:
+        _remember_failed_gateway(hass, entry_id, hub)
         await hub.async_close()
         hass.data[DOMAIN].pop(entry_id, None)
         async_notify_unavailable(
@@ -432,11 +441,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         result = await _async_setup_entry(hass, entry)
     except Exception as ex:
+        if isinstance(ex, ConfigEntryNotReady) and ex.__cause__ is None and entry.entry_id in errors:
+            # iPark 대기 중 재시도 ('next attempt in Ns') 는 원인이 없는
+            # NotReady 입니다. 앞서 남긴 진짜 원인을 덮어쓰지 않습니다.
+            # An iPark cooldown retry ("next attempt in Ns") is a NotReady
+            # with no cause; keep the real reason recorded before it.
+            raise
         cause = ex.__cause__ if isinstance(ex, ConfigEntryNotReady) and ex.__cause__ else ex
-        errors[entry.entry_id] = error_text(cause)
+        errors[entry.entry_id] = (
+            f"{datetime.now().isoformat(timespec='seconds')} {error_text(cause)}"
+        )
         raise
     errors.pop(entry.entry_id, None)
+    hass.data.get(FAILED_GATEWAY_KEY, {}).pop(entry.entry_id, None)
     return result
+
+
+def _remember_failed_gateway(hass: HomeAssistant, entry_id: str, hub: BestinHub) -> None:
+    """설정 실패로 허브를 버리기 전에 상태를 남깁니다.
+
+    로그인 응답이나 요청 기록처럼 문제 신고에 가장 필요한 정보가 바로 이
+    허브에 있습니다. 가리기는 진단을 만들 때 합니다.
+    Save the hub's gateway state before setup failure throws the hub away:
+    the login reply and request log a report needs most live on it.
+    Scrubbing happens when diagnostics are built.
+    """
+    snapshot = gateway_snapshot(hub)
+    if snapshot:
+        snapshot["from_failed_setup"] = True
+        snapshot["saved_at"] = datetime.now().isoformat(timespec="seconds")
+        hass.data.setdefault(FAILED_GATEWAY_KEY, {})[entry_id] = snapshot
 
 
 async def _async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -455,6 +489,7 @@ async def _async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             await asyncio.wait_for(hub.connect(), timeout=5)
         except asyncio.TimeoutError as ex:
+            _remember_failed_gateway(hass, entry.entry_id, hub)
             await hub.async_close()
             hass.data[DOMAIN].pop(entry.entry_id)
             raise ConfigEntryNotReady(f"Connection to {hub.hub_id} timed out.") from ex
