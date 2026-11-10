@@ -4,6 +4,11 @@
   "after_dependencies": [
     "http"
   ],
+  "categories": [
+    "hubs_protocols",
+    "climate",
+    "energy"
+  ],
   "codeowners": [
     "@dlxmax"
   ],
