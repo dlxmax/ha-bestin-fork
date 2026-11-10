@@ -1,11 +1,11 @@
 # 프로젝트 소개 / About
 
-**ha-bestin-fork** 는 한국 BESTIN / 현대 IPARK 월패드를 [Home Assistant](https://www.home-assistant.io/) 에 연동하기 위한 커스텀 컴포넌트입니다. 본 포크는 같은 단지에서도 동작하지 않던 기존 두 가지 방식을 보완하기 위해 세 번째 옵션을 추가합니다.  
+**ha-bestin-fork** 는 한국 BESTIN / 현대 IPARK 월패드를 [Home Assistant](https://www.home-assistant.io/) 에 연동하는 커스텀 컴포넌트예요. 이 포크는 같은 단지에서도 동작하지 않던 기존 두 가지 방식을 보완하려고 세 번째 옵션을 추가해요.  
 *ha-bestin-fork is a Home Assistant custom component for the Korean BESTIN / Hyundai IPARK wallpads. This fork adds a third gateway option that fills the gap when the two existing methods don't work in a given complex.*
 
 ## 한 줄 요약 / One-line summary
 
-월패드 → Home Assistant. 세 가지 연결 방식 중 본인 단지에 맞는 것을 선택할 수 있습니다.  
+월패드 → Home Assistant. 세 가지 연결 방식 중 본인 단지에 맞는 것을 고를 수 있어요.  
 *Wallpad → Home Assistant. Pick whichever of the three connection methods works in your complex.*
 
 ## 방식 비교 / Method comparison
@@ -18,12 +18,12 @@
 
 ## 유지보수 현황 / Maintenance status
 
-원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 의 작업이 v1.1.9 이후로 중단되어, 본 포크가 유지보수를 이어 받았습니다. 버전별 변경 내용은 [Releases](https://github.com/dlxmax/ha-bestin-fork/releases) 참조.  
+원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 의 작업이 v1.1.9 이후로 중단되어, 이 포크가 유지보수를 이어 받았어요. 버전별 변경 내용은 [Releases](https://github.com/dlxmax/ha-bestin-fork/releases) 에서 볼 수 있어요.  
 *Upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) development stopped after v1.1.9. This fork has taken over maintenance. See [Releases](https://github.com/dlxmax/ha-bestin-fork/releases) for what changed in each version.*
 
 ## 왜 만들었는가 / Why this exists
 
-본 포크 작성자의 가정에서는 두 기존 방식이 모두 동작하지 않았습니다. 월패드는 RS-422 라인을 사용해 RS-485 어댑터로 신호 해석이 어려웠고, 단지 웹사이트의 제어 명령은 응답 없이 사라졌습니다. 그러나 같은 서버에 안드로이드 [iPark 스마트홈 앱](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet) 을 사용하면 정상 동작했습니다. 앱을 정적 분석한 결과, 앱은 웹사이트와 같은 URL 을 호출하지만 두 가지 핵심 차이가 있었습니다 — 정확한 PHP 경로 (`/webapp/data/...`) 와 필수 AJAX 헤더 (`X-Requested-With: XMLHttpRequest`). 헤더 누락 시 서버는 즉시 `result="timeout"` 더미 응답을 돌려보냅니다 — 웹사이트가 무반응이었던 직접적인 원인입니다. 본 신규 옵션은 두 차이를 정확히 반영합니다.  
+이 포크 작성자의 집에서는 기존 두 방식이 모두 동작하지 않았어요. 월패드는 RS-422 라인을 사용해 RS-485 어댑터로 신호 해석이 어려웠고, 단지 웹사이트의 제어 명령은 응답 없이 사라졌어요. 그런데 같은 서버에 안드로이드 [iPark 스마트홈 앱](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet) 을 쓰면 잘 동작했어요. 앱을 정적 분석한 결과, 앱은 웹사이트와 같은 URL 을 호출하지만 두 가지 핵심 차이가 있었어요. 정확한 PHP 경로 (`/webapp/data/...`) 와 필수 AJAX 헤더 (`X-Requested-With: XMLHttpRequest`) 예요. 헤더가 없으면 서버는 바로 `result="timeout"` 더미 응답을 돌려보내요. 웹사이트가 무반응이었던 직접적인 원인이에요. 이 새 옵션은 두 차이를 그대로 반영해요.  
 *Both existing methods failed in this fork author's home — the wallpad uses RS-422 (older than RS-485) so adapters couldn't parse it cleanly, and the apartment-complex website silently dropped every control command. The Android iPark Smarthome app worked fine on the same server. Static analysis of the APK revealed the app makes near-identical calls to the website but with two critical differences: the correct PHP path (`/webapp/data/...`) and the mandatory `X-Requested-With: XMLHttpRequest` header. Without that header the server short-circuits with a stub `result="timeout"` — the direct cause of the website's silent failures. The new option mirrors both differences faithfully.*
 
 ## 지원 기기 / Supported devices
@@ -33,12 +33,12 @@
 
 ## 다국어 지원 / Localisation
 
-이 통합과 모든 문서는 한국어와 영어를 동시 지원합니다 (한국어 우선).  
+이 통합과 모든 문서는 한국어와 영어를 함께 지원해요 (한국어 먼저).  
 *The integration and all documentation are bilingual — Korean first, English second.*
 
 ## 라이선스 / License
 
-원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 에는 오픈 소스 라이선스가 없고, 원작자는 "Copyright (c) 2026 lunDreame. All rights reserved." 라고만 밝히고 있습니다. 그래서 본 포크에도 라이선스 파일이 없습니다.  
+원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 에는 오픈 소스 라이선스가 없고, 원작자는 "Copyright (c) 2026 lunDreame. All rights reserved." 라고만 밝히고 있어요. 그래서 이 포크에도 라이선스 파일이 없어요.  
 *The upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) has no open source license; its author states only "Copyright (c) 2026 lunDreame. All rights reserved." This fork therefore has no license file either.*
 
 iPark 스마트홈 앱 옵션과 이후 변경 사항: Copyright (c) 2026 dlxmax.  
@@ -46,17 +46,17 @@ iPark 스마트홈 앱 옵션과 이후 변경 사항: Copyright (c) 2026 dlxmax
 
 ## 감사의 말 / Acknowledgments
 
-- [@lunDreame](https://github.com/lunDreame) — 원본 통합 작성자.<br>*Original integration author.*
-- [@laz-](https://github.com/laz-): [포크](https://github.com/laz-/ha-bestin)에서 RS-485 연결이 끊긴 뒤 다시 연결하지 않던 문제, 두 번째 가스 밸브 (0x32), 온도조절기 켜기/끄기 등을 찾아 고쳤고, 본 포크가 이를 반영했습니다.<br>*Found and fixed, in [their fork](https://github.com/laz-/ha-bestin), the RS-485 connection that never came back after a drop, the second gas valve (0x32), thermostat turn on/off and more; this fork takes those fixes.*
-- [@pjb5592](https://github.com/pjb5592): [포크](https://github.com/pjb5592/ha-bestin)에서 로컬 환기 팬 속도 오류, 밝기 조절이 없는 Gen2 조명이 나타나지 않던 문제 등을 찾아 고쳤고, 본 포크가 이를 반영했습니다.<br>*Found and fixed, in [their fork](https://github.com/pjb5592/ha-bestin), a crash reading the local ventilation fan speed, Gen2 lights without dimming that never appeared, and more; this fork takes those fixes.*
-- [@Kevrik](https://github.com/Kevrik): [포크](https://github.com/Kevrik/ha-bestin)에 실제 가스 밸브 패킷을 남겨 주었고, 본 포크의 테스트가 이를 사용합니다.<br>*Shared real gas valve packet captures in [their fork](https://github.com/Kevrik/ha-bestin); this fork's tests use them.*
-- [@Camblin](https://github.com/Camblin): [포크](https://github.com/Camblin/ha-bestin)에서 로컬 온도조절기 상태 비트를 해석했고, 본 포크는 이를 이용해 난방 중 / 대기 상태를 보여 줍니다.<br>*Decoded the local thermostat status bits in [their fork](https://github.com/Camblin/ha-bestin); this fork uses them to show heating or idle.*
-- [@siisee11](https://github.com/siisee11): [포크](https://github.com/siisee11/ha-bestin)에서 RS-485 소켓 데이터가 어긋났을 때 다음 패킷을 다시 찾도록 고쳤고, 본 포크가 이를 반영했습니다.<br>*Fixed, in [their fork](https://github.com/siisee11/ha-bestin), RS-485 socket reads so they find the next packet after bad data; this fork takes that fix.*
-- [Mobiletalk](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet) — 안드로이드 iPark 스마트홈 앱 개발사 (앱의 호출 패턴을 분석해 본 통합을 구현).<br>*Developer of the Android iPark Smarthome app (whose call pattern this fork mirrors).*
+- [@lunDreame](https://github.com/lunDreame): 원본 통합 작성자.<br>*Original integration author.*
+- [@laz-](https://github.com/laz-): [포크](https://github.com/laz-/ha-bestin)에서 RS-485 연결이 끊긴 뒤 다시 연결하지 않던 문제, 두 번째 가스 밸브 (0x32), 온도조절기 켜기/끄기 등을 찾아 고쳤고, 이 포크가 그 수정을 가져왔어요.<br>*Found and fixed, in [their fork](https://github.com/laz-/ha-bestin), the RS-485 connection that never came back after a drop, the second gas valve (0x32), thermostat turn on/off and more; this fork takes those fixes.*
+- [@pjb5592](https://github.com/pjb5592): [포크](https://github.com/pjb5592/ha-bestin)에서 로컬 환기 팬 속도 오류, 밝기 조절이 없는 Gen2 조명이 나타나지 않던 문제 등을 찾아 고쳤고, 이 포크가 그 수정을 가져왔어요.<br>*Found and fixed, in [their fork](https://github.com/pjb5592/ha-bestin), a crash reading the local ventilation fan speed, Gen2 lights without dimming that never appeared, and more; this fork takes those fixes.*
+- [@Kevrik](https://github.com/Kevrik): [포크](https://github.com/Kevrik/ha-bestin)에 실제 가스 밸브 패킷을 남겨 줬고, 이 포크의 테스트가 그 패킷을 써요.<br>*Shared real gas valve packet captures in [their fork](https://github.com/Kevrik/ha-bestin); this fork's tests use them.*
+- [@Camblin](https://github.com/Camblin): [포크](https://github.com/Camblin/ha-bestin)에서 로컬 온도조절기 상태 비트를 해석했고, 이 포크는 그걸로 난방 중 / 대기 상태를 보여 줘요.<br>*Decoded the local thermostat status bits in [their fork](https://github.com/Camblin/ha-bestin); this fork uses them to show heating or idle.*
+- [@siisee11](https://github.com/siisee11): [포크](https://github.com/siisee11/ha-bestin)에서 RS-485 소켓 데이터가 어긋났을 때 다음 패킷을 다시 찾도록 고쳤고, 이 포크가 그 수정을 가져왔어요.<br>*Fixed, in [their fork](https://github.com/siisee11/ha-bestin), RS-485 socket reads so they find the next packet after bad data; this fork takes that fix.*
+- [Mobiletalk](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet): 안드로이드 iPark 스마트홈 앱 개발사 (이 통합은 앱의 호출 패턴을 분석해서 만들었어요).<br>*Developer of the Android iPark Smarthome app (whose call pattern this fork mirrors).*
 
 ## 더 알아보기 / Learn more
 
 - [README.md](./README.md): 설치 / 설정 / 문제 신고 / *install, setup, reporting a problem*
-- [guide/iparkapp.md](./guide/iparkapp.md) — iPark 스마트홈 앱 옵션 상세 / *iPark Smarthome App option in detail*
-- [guide/center.md](./guide/center.md) — 기존 클라우드 옵션 (1.0 / 2.0) / *existing cloud option (v1.0 / v2.0)*
-- [guide/install.md](./guide/install.md) — RS-485 어댑터 설치 / *RS-485 adapter install*
+- [guide/iparkapp.md](./guide/iparkapp.md): iPark 스마트홈 앱 옵션 상세 / *iPark Smarthome App option in detail*
+- [guide/center.md](./guide/center.md): 기존 클라우드 옵션 (1.0 / 2.0) / *existing cloud option (v1.0 / v2.0)*
+- [guide/install.md](./guide/install.md): RS-485 어댑터 설치 / *RS-485 adapter install*
