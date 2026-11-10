@@ -49,7 +49,7 @@ from homeassistant.const import (
     WIND_SPEED,
     UnitOfTemperature,
 )
-from homeassistant.core import Event, HomeAssistant, State, callback
+from homeassistant.core import CoreState, Event, HomeAssistant, State, callback
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change,
@@ -499,10 +499,36 @@ class BestinIparkAppAPI:
         device = self.devices.get(f"{BRAND_PREFIX}_temper_{room}")
         if device is None or not isinstance(device.info.state, dict):
             return  # 첫 폴링 전: before the first poll; it applies the value.
-        wallpad = device.info.state.get("wallpad_temperature")
-        self._optimistic_temper_state(
-            room, **{ATTR_CURRENT_TEMPERATURE: temp if temp is not None else wallpad}
+        shown = self._room_temperature(
+            temp,
+            device.info.state.get("wallpad_temperature"),
+            device.info.state.get(ATTR_CURRENT_TEMPERATURE),
         )
+        self._optimistic_temper_state(room, **{ATTR_CURRENT_TEMPERATURE: shown})
+
+    def _room_temperature(
+        self, sensor_temp: float | None, wallpad: float | None, previous: float | None
+    ) -> float | None:
+        """방 온도로 보여 줄 값 / The temperature to show for a mapped room.
+
+        센서 값이 있으면 센서 값이에요. HA 가 시작하거나 멈추는 중에는 센서가
+        아직 없거나 사라지는 중이라, 월패드 값으로 바꾸지 않고 이전 값을 둬요.
+        그렇지 않으면 다시 시작할 때마다 그래프에 월패드 값이 한 번 튀어요.
+        HA 가 실행 중인데 센서가 죽어 있으면 월패드 값을 써요.
+
+        The sensor when it has a value. While HA starts or stops, the sensor
+        is not loaded yet or is going away, so keep the previous value instead
+        of switching to the wallpad: otherwise every restart puts a one-off
+        wallpad spike in the history graph. With HA running and the sensor
+        dead, fall back to the wallpad.
+        """
+        if sensor_temp is not None:
+            return sensor_temp
+        # is_running 은 시작 중에도 참이라 상태를 직접 봐요.
+        # is_running is also true while starting, so check the state itself.
+        if self.hass.state is not CoreState.running:
+            return previous
+        return wallpad
 
     @callback
     async def _scheduled_poll(self, now: datetime) -> None:
@@ -1427,8 +1453,15 @@ class BestinIparkAppAPI:
                 sensor_temp = room_sensor_celsius(
                     self.hass.states.get(self.room_sensors[device_number])
                 )
-                if sensor_temp is not None:
-                    value[ATTR_CURRENT_TEMPERATURE] = sensor_temp
+                existing = self.devices.get(f"{BRAND_PREFIX}_temper_{device_number}")
+                previous = (
+                    existing.info.state.get(ATTR_CURRENT_TEMPERATURE)
+                    if existing is not None and isinstance(existing.info.state, dict)
+                    else None
+                )
+                value[ATTR_CURRENT_TEMPERATURE] = self._room_temperature(
+                    sensor_temp, current, previous
+                )
             room_state = self.duty_cycle.get_room(device_number)
             if room_state is not None:
                 value["preset_mode"] = room_state.preset

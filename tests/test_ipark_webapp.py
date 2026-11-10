@@ -78,6 +78,9 @@ class HomeAssistantError(Exception):
 sys.modules["homeassistant.exceptions"].HomeAssistantError = HomeAssistantError
 # @callback must pass the coroutine function through unchanged.
 sys.modules["homeassistant.core"].callback = lambda func: func
+sys.modules["homeassistant.core"].CoreState = types.SimpleNamespace(
+    running="running", starting="starting", not_running="not_running"
+)
 
 pkg = types.ModuleType("bst")
 pkg.__path__ = [REPO]
@@ -242,6 +245,20 @@ check(
     api.devices[VENT].info.state,
     {"state": False, "wind_speed": "off"},
 )
+
+# --- 방 온도 센서와 HA 재시작 / room sensor across HA restarts -------------
+# 다시 시작할 때 센서가 아직 없으면 월패드 값이 그래프에 튀었어요.
+# On restart the sensor was not loaded yet, so the wallpad value spiked.
+api = make_api([])
+api.hass = types.SimpleNamespace(state="not_running")
+check("setting up: sensor missing keeps previous", api._room_temperature(None, 23.0, 21.8), 21.8)
+check("starting: first poll shows nothing yet", api._room_temperature(None, 23.0, None), None)
+check("starting: sensor value wins", api._room_temperature(21.7, 23.0, 21.8), 21.7)
+api.hass.state = "starting"
+check("starting: still keeps previous", api._room_temperature(None, 23.0, 21.8), 21.8)
+api.hass.state = "running"
+check("running: dead sensor falls back to wallpad", api._room_temperature(None, 23.0, 21.8), 23.0)
+check("running: sensor value wins", api._room_temperature(21.7, 23.0, 21.8), 21.7)
 
 print()
 print("FAILED:" if failures else "all passed", *failures)
