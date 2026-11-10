@@ -405,6 +405,22 @@ async def connection_cases():
         [True] * 4,
     )
 
+    # Packet resync (from siisee11, https://github.com/siisee11/ha-bestin).
+    # A 0x02 inside data, then a real packet starting one byte later.
+    cm = _socket_cm(bytes([0x02, 0x02]) + bytes(therm))
+    got = await cm.receive()
+    check("stray 0x02 does not lose the next packet", bytes(got), bytes(therm))
+
+    # A stray 0x02 followed by a bad length byte, then a real packet.
+    cm = _socket_cm(bytes([0x02, 0x28, 0x01]) + bytes(therm))
+    got = await cm.receive()
+    check("bad length byte gives no fragment", bytes(got), bytes(therm))
+
+    # 0x17 (AIO) packets used to be dropped by the header check.
+    p17 = bytes([0x02, 0x17, 0x80, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+    cm = _socket_cm(p17 + bytes(therm))
+    check("0x17 packet is read", (bytes(await cm.receive()), len(await cm.receive())), (p17, 16))
+
     # Two tasks fail at once: the second must not close what the first reopened.
     cm = CM("10.0.0.1:8899")
     old = _Writer()

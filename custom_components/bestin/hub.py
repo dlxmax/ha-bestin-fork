@@ -60,6 +60,15 @@ class ConnectionManager:
         self.constant_packet_length = 10
         self._parse_conn_str()
 
+    @staticmethod
+    def _is_supported_packet_header(header: int) -> bool:
+        """Check whether a byte can be a BESTIN packet header (from siisee11's fork)."""
+        return (
+            header in (0x17, 0x28, 0x31, 0x32, 0x41, 0x42, 0x61, 0xD1)
+            or 0x50 <= header <= 0x5F  # AIO
+            or 0x30 <= header <= 0x3F  # Gen2
+        )
+
     def _parse_conn_str(self) -> bool:
         """Parse the connection string to determine connection type."""
         if re.match(r"COM\d+|/dev/tty\w+", self.conn_str):
@@ -213,6 +222,12 @@ class ConnectionManager:
         try:
             while True:
                 while True:
+                    # 이미 읽은 바이트에 0x02 가 있으면 거기서 다시 시작합니다.
+                    # Restart from a 0x02 already in the bytes read so far.
+                    if 0x02 in packet:
+                        start_index = packet.index(0x02)
+                        packet = packet[start_index:]
+                        break
                     initial_data = await self.reader.read(1)
                     if not initial_data:
                         # 상대가 연결을 닫았습니다. 예전에는 빈 값을 돌려줘서
@@ -222,19 +237,19 @@ class ConnectionManager:
                         # (found in laz-'s fork).
                         raise socket.error("Connection closed by remote")
                     packet += initial_data
-                    if 0x02 in packet:
-                        start_index = packet.index(0x02)
-                        packet = packet[start_index:]
-                        break
 
                 packet += await recv_exactly(3 - len(packet))
 
-                if (
-                    packet[1] not in [0x28, 0x31, 0x32, 0x41, 0x42, 0x61, 0xD1]
-                    and packet[1] & 0xF0 != 0x50   # For AIO (0x51-0x55)
-                    and packet[1] & 0x30 != 0x30   # For Gen2 (0x3F, 0x31-0x36)
-                ):
-                    return b''
+                # 데이터 속의 0x02 에서 시작했다면 한 바이트만 버리고 다시 찾습니다.
+                # 예전에는 세 바이트를 버려 그 안에서 시작하는 진짜 패킷을 잃었습니다
+                # (siisee11 의 포크).
+                # If we started on a 0x02 inside data, drop one byte and look
+                # again. Dropping all three lost a real packet starting inside
+                # them (from siisee11's fork).
+                if not self._is_supported_packet_header(packet[1]):
+                    LOGGER.debug("Skipping unsupported packet header: %s", packet.hex())
+                    packet = packet[1:]
+                    continue
 
                 # 0x32 는 두 번째 가스 밸브로, 0x31 과 같은 10바이트 고정
                 # 길이입니다. 모르면 세 번째 바이트 (0x80 = 128) 를 길이로 읽어
@@ -251,9 +266,12 @@ class ConnectionManager:
                 else:
                     packet_length = packet[2]
                 
-                if packet_length <= 0:
-                    #LOGGER.error(f"Invalid packet length in packet: {packet.hex()}")
-                    return b''
+                # 길이가 4 보다 작으면 패킷 조각이 됩니다. 한 바이트 버리고 다시 찾습니다.
+                # A length under 4 would give a fragment. Drop one byte and look again.
+                if packet_length < 4 or packet_length < len(packet):
+                    LOGGER.debug("Skipping invalid packet length in packet: %s", packet.hex())
+                    packet = packet[1:]
+                    continue
 
                 packet += await recv_exactly(packet_length - len(packet))
                 
@@ -394,7 +412,13 @@ class BestinHub:
 
             for chunk in chunk_storage:
                 if len(chunk) < 4:
-                    raise ValueError(f"Chunk length is too short: length={len(chunk)}, chunk={chunk.hex()}")     
+                    # 짧은 조각 하나로 설정 전체가 실패하지 않게 건너뜁니다 (siisee11 의 포크).
+                    # Skip it so one short fragment does not fail setup (siisee11's fork).
+                    LOGGER.debug(
+                        "Skipping short chunk during gateway mode detection: length=%d, hex=%s",
+                        len(chunk), chunk.hex()
+                    )
+                    continue
                 chunk_length = chunk[2]
                 room_byte = chunk[1]
                 command_byte = chunk[3]

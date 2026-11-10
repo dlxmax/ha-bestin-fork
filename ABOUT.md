@@ -51,6 +51,7 @@ iPark 스마트홈 앱 옵션과 이후 변경 사항: Copyright (c) 2026 dlxmax
 - [@pjb5592](https://github.com/pjb5592): [포크](https://github.com/pjb5592/ha-bestin)에서 로컬 환기 팬 속도 오류, 밝기 조절이 없는 Gen2 조명이 나타나지 않던 문제 등을 찾아 고쳤고, 본 포크가 이를 반영했습니다.<br>*Found and fixed, in [their fork](https://github.com/pjb5592/ha-bestin), a crash reading the local ventilation fan speed, Gen2 lights without dimming that never appeared, and more; this fork takes those fixes.*
 - [@Kevrik](https://github.com/Kevrik): [포크](https://github.com/Kevrik/ha-bestin)에 실제 가스 밸브 패킷을 남겨 주었고, 본 포크의 테스트가 이를 사용합니다.<br>*Shared real gas valve packet captures in [their fork](https://github.com/Kevrik/ha-bestin); this fork's tests use them.*
 - [@Camblin](https://github.com/Camblin): [포크](https://github.com/Camblin/ha-bestin)에서 로컬 온도조절기 상태 비트를 해석했고, 본 포크는 이를 이용해 난방 중 / 대기 상태를 보여 줍니다.<br>*Decoded the local thermostat status bits in [their fork](https://github.com/Camblin/ha-bestin); this fork uses them to show heating or idle.*
+- [@siisee11](https://github.com/siisee11): [포크](https://github.com/siisee11/ha-bestin)에서 RS-485 소켓 데이터가 어긋났을 때 다음 패킷을 다시 찾도록 고쳤고, 본 포크가 이를 반영했습니다.<br>*Fixed, in [their fork](https://github.com/siisee11/ha-bestin), RS-485 socket reads so they find the next packet after bad data; this fork takes that fix.*
 - [Mobiletalk](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet) — 안드로이드 iPark 스마트홈 앱 개발사 (앱의 호출 패턴을 분석해 본 통합을 구현).<br>*Developer of the Android iPark Smarthome app (whose call pattern this fork mirrors).*
 
 ## 더 알아보기 / Learn more
