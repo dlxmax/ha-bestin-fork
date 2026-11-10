@@ -41,7 +41,12 @@ ENERGY_BYTE_RANGE = {
     "gas": (slice(32, 36), slice(25, 29)),
     "heat": (slice(40, 44), slice(40, 44)),
     "hotwater": (slice(24, 28), slice(24, 28)),
-    "water": (slice(17, 20), slice(17, 20)),
+    # 찬물 누계도 다른 계량기처럼 4바이트예요. 예전에는 첫 바이트를 건너뛰어
+    # 1,695 m³ 가 695 m³ 로 읽혔어요 (#3 진단). AIO 형식은 표본이 없어 그대로 둬요.
+    # The cold water total is 4 bytes like the other meters. Skipping the
+    # first byte read 1,695 m3 as 695 m3 (seen in #3's diagnostics). The AIO
+    # layout has no sample, so it is left as it was.
+    "water": (slice(16, 20), slice(17, 20)),
 }
 
 

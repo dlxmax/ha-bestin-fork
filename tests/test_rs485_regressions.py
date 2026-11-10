@@ -220,7 +220,7 @@ UPSTREAM = {
         "heat_realtime": (0.0, M3H, None, "measurement"),
         "hotwater_total": (1004.24, M3, None, "total_increasing"),
         "hotwater_realtime": (0.0, M3H, None, "measurement"),
-        "water_total": (480.53, M3, CLS.WATER, "total_increasing"),
+        "water_total": (1480.53, M3, CLS.WATER, "total_increasing"),
         "water_realtime": (0.0, M3H, None, "measurement"),
     },
     "AIO": {
@@ -614,6 +614,19 @@ ent._device_info = types.SimpleNamespace(state={"hvac_mode": "heat"})
 check("no hvac_action on gateways that do not report it", ent.hvac_action, None)
 ent._device_info.state["hvac_action"] = "heating"
 check("hvac_action read from state", ent.hvac_action, "heating")
+
+# Cold water total is a 4-byte BCD field like the other meters (#3). Packets
+# from #3's diagnostics and from upstream's capture used above.
+ctrl_e = object.__new__(controller.BestinController)
+ctrl_e.gateway_type = "General"
+for hexpkt, want in (
+    ("02d1308269800501060286200001960201695200000000030061300000000004001124000000000500055990000000" "29",
+     {"electric": 6028620.0, "water": 1695200.0, "hotwater": 613000.0, "gas": 112400.0, "heat": 55990.0}),
+    ("02d130828780050103615160001283020148052900000003010042360000000400511188000000050003661400000059",
+     {"electric": 3615160.0, "water": 1480529.0, "hotwater": 1004236.0, "gas": 511188.0, "heat": 36614.0}),
+):
+    got = ctrl_e.parse_energy(bytearray.fromhex(hexpkt))
+    check("energy totals read 4 bytes each", {k: v["total"] for k, v in got.items()}, want)
 
 print()
 print("FAILURES:", failures if failures else "none")
