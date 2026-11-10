@@ -146,8 +146,10 @@ async def async_collect(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, An
         "entities": counts,
         "entity_states": entity_rows,
         "devices": _devices(hub),
-        "warnings": list(LOG_RING.warnings),
-        "log": list(LOG_RING.records),
+        # 이 항목의 연결 방식과 공통 줄만 / Only this entry's gateway kind
+        # plus shared lines; center_v1 and center_v2 share one buffer.
+        "warnings": LOG_RING.lines(gateway_kind(entry).split("_")[0], warnings=True),
+        "log": LOG_RING.lines(gateway_kind(entry).split("_")[0]),
     }
     return scrub_obj(snapshot, secrets)
 

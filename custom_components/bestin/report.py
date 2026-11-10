@@ -207,31 +207,110 @@ def _record_entry(record: logging.LogRecord) -> dict[str, str]:
     return entry
 
 
+# 로그 줄이 어느 연결 방식의 것인지 / Which gateway a log line belongs to.
+# 모든 모듈이 같은 로거를 쓰므로 파일 이름으로 나눠요. 여기 없는 파일은
+# 공통 (shared) 이에요. All modules share one logger, so lines are sorted by
+# source file; anything not listed is shared.
+_MODULE_KIND = {
+    "controller": "rs485",
+    "iparkapp": "iparkapp",
+    "iparkapp_const": "iparkapp",
+    "center": "center",
+}
+# hub.py 의 RS-485 쪽 함수 (ConnectionManager 와 게이트웨이 감지).
+# The RS-485 side of hub.py: ConnectionManager and gateway detection.
+_HUB_RS485_FUNCS = frozenset({
+    "_is_supported_packet_header", "_parse_conn_str", "connect",
+    "_connect_serial", "_connect_socket", "is_connected", "_close_writer",
+    "reconnect", "send", "receive", "_receive_socket", "close",
+    "determine_gateway_mode",
+})
+# 패킷마다 남는 디버그 줄. controller 의 ``recent_packets`` 가 이미 최근 50개를
+# 보관하므로 로그 버퍼에는 넣지 않아요. A debug line per packet; the
+# controller's ``recent_packets`` already keeps the last 50.
+_SKIP_DEBUG_PREFIXES = ("Packet viewer - Data:",)
+# 같은 줄이 최근 몇 줄 안에 또 오면 개수만 늘려요 / How far back a repeat
+# is folded into the earlier line.
+_REPEAT_LOOKBACK = 3
+
+
+def log_kind(record: logging.LogRecord) -> str:
+    """기록의 연결 방식 / The gateway kind of a log record."""
+    if record.module == "hub" and record.funcName in _HUB_RS485_FUNCS:
+        return "rs485"
+    return _MODULE_KIND.get(record.module, "shared")
+
+
 class LogRing(logging.Handler):
     """최근 로그를 메모리에만 보관합니다 / Keeps recent log records in memory.
 
-    ``records`` 는 로거 수준이 허용하는 모든 줄 (기본 HA 설정에서는 info
-    이상, 디버그 로그를 켜면 디버그까지) 을, ``warnings`` 는 경고와 오류만
-    따로 담습니다. 디버그 줄이 몇 분 만에 ``records`` 를 채워도 원인이 된
-    경고는 ``warnings`` 에 남습니다. 둘 다 크기가 고정이라 늘어나지 않습니다.
+    연결 방식 (rs485, iparkapp, center, shared) 마다 버퍼가 따로 있어요.
+    RS-485 항목이 1초마다 남기는 디버그 줄이 같은 HA 의 iPark 항목 로그를
+    밀어내던 문제 때문이에요 (#3). 각 방식마다 ``log`` 는 로거 수준이 허용하는
+    모든 줄을, ``warnings`` 는 경고와 오류만 담아서 디버그 줄이 원인이 된
+    경고를 밀어내지 못해요. 바로 앞 몇 줄과 같은 줄은 ``count`` 만 늘려요.
+    모두 크기가 고정이에요.
 
-    ``records`` holds whatever the logger level lets through (info and up on
-    a default install, debug while debug logging is on). ``warnings`` keeps
-    warnings and errors separately, so a debug flood that fills ``records``
-    within minutes can't push out the warning that mattered. Both are fixed
-    size.
+    One buffer per gateway kind (rs485, iparkapp, center, shared), because an
+    RS-485 entry's once-a-second debug lines pushed every line of an iPark
+    entry on the same HA out of the shared buffer (#3). Per kind, ``log``
+    holds whatever the logger level lets through and ``warnings`` keeps
+    warnings and errors, so a debug flood can't push out the warning that
+    mattered. A line identical to one of the last few only bumps its
+    ``count``. All fixed size.
     """
 
     def __init__(self, maxlen: int = 200, warn_maxlen: int = 50) -> None:
         super().__init__(logging.DEBUG)
-        self.records: deque[dict[str, str]] = deque(maxlen=maxlen)
-        self.warnings: deque[dict[str, str]] = deque(maxlen=warn_maxlen)
+        self.maxlen = maxlen
+        self.warn_maxlen = warn_maxlen
+        self.logs: dict[str, deque[dict[str, Any]]] = {}
+        self.warns: dict[str, deque[dict[str, Any]]] = {}
 
     def emit(self, record: logging.LogRecord) -> None:
+        if (
+            record.levelno < logging.WARNING
+            and isinstance(record.msg, str)
+            and record.msg.startswith(_SKIP_DEBUG_PREFIXES)
+        ):
+            return
         entry = _record_entry(record)
-        self.records.append(entry)
+        kind = log_kind(record)
+        self._add(self.logs.setdefault(kind, deque(maxlen=self.maxlen)), entry)
         if record.levelno >= logging.WARNING:
-            self.warnings.append(entry)
+            self._add(
+                self.warns.setdefault(kind, deque(maxlen=self.warn_maxlen)),
+                dict(entry),
+            )
+
+    @staticmethod
+    def _add(ring: deque[dict[str, Any]], entry: dict[str, Any]) -> None:
+        for back, prev in enumerate(reversed(ring)):
+            if back >= _REPEAT_LOOKBACK:
+                break
+            if all(prev.get(k) == entry.get(k) for k in ("level", "message", "logger")):
+                prev["count"] = prev.get("count", 1) + 1
+                prev["last"] = entry["time"]
+                return
+        ring.append(entry)
+
+    def lines(self, kind: str | None = None, *, warnings: bool = False) -> list[dict[str, Any]]:
+        """한 연결 방식과 공통 줄을 시간 순으로 / One kind's lines plus shared ones, by time.
+
+        ``kind`` 가 없으면 모든 방식이에요 / ``None`` means every kind.
+        """
+        store = self.warns if warnings else self.logs
+        kinds = list(store) if kind is None else [kind, "shared"]
+        out = [entry for k in dict.fromkeys(kinds) for entry in store.get(k, ())]
+        return sorted(out, key=lambda entry: entry["time"])
+
+    @property
+    def records(self) -> list[dict[str, Any]]:
+        return self.lines()
+
+    @property
+    def warnings(self) -> list[dict[str, Any]]:
+        return self.lines(warnings=True)
 
 
 class _ForeignErrors(logging.Handler):
@@ -470,6 +549,7 @@ def build_summary_blocks(snapshot: dict[str, Any]) -> list[str]:
             f"{r.get('time', '')[5:19].replace('T', ' ')} {r.get('level', '')[:4]} "
             + (f"[{r['logger']}] " if r.get("logger") else "")
             + r.get("message", "")[:240]
+            + (f" (×{r['count']}, last {str(r.get('last', ''))[11:19]})" if r.get("count", 1) > 1 else "")
             for r in records
         )
 

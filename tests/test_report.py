@@ -291,6 +291,38 @@ own_rec = logging.LogRecord(report._PACKAGE, logging.ERROR, "x", 1, "own", None,
 foreign.emit(own_rec)
 check("own logger not counted twice", len(ring.warnings), before)
 
+# --- v1.4.27 (#3): one buffer per gateway kind ---------------------------------
+def _rec(module, func, level, msg, *args):
+    r = logging.LogRecord(report._PACKAGE, level, f"/x/bestin/{module}.py", 1, msg, args, None, func)
+    r.module = module
+    return r
+
+kr = report.LogRing()
+kr.emit(_rec("iparkapp", "_fetch_class", logging.DEBUG, "light 응답=fail"))
+kr.emit(_rec("iparkapp", "_log_gather_errors", logging.WARNING, "status poll error: UnicodeDecodeError"))
+for i in range(500):
+    kr.emit(_rec("controller", "process_incoming_data", logging.DEBUG, "Packet viewer - Data: %s | Checksum: %s", f"02 {i}", "valid"))
+    kr.emit(_rec("hub", "_receive_socket", logging.DEBUG, "Skipping invalid packet length in packet: %s", "024100"))
+kr.emit(_rec("hub", "async_initialize_center", logging.INFO, "shared line"))
+ip_log = kr.lines("iparkapp")
+check("iPark log keeps its lines after an RS-485 flood", [r["message"] for r in ip_log], ["light 응답=fail", "status poll error: UnicodeDecodeError", "shared line"])
+check("iPark warnings", [r["message"] for r in kr.lines("iparkapp", warnings=True)], ["status poll error: UnicodeDecodeError"])
+rs_log = kr.lines("rs485")
+check("packet viewer lines skipped", any("Packet viewer" in r["message"] for r in rs_log), False)
+check("repeated hub line folded into one", [(r["message"], r.get("count")) for r in rs_log if "Skipping" in r["message"]], [("Skipping invalid packet length in packet: 024100", 500)])
+check("RS-485 lines stay out of iPark", any("Skipping" in r["message"] for r in ip_log), False)
+check("all kinds via records", len(kr.records), 4)
+check("hub ConnectionManager line is rs485", report.log_kind(_rec("hub", "reconnect", logging.INFO, "x")), "rs485")
+check("other hub line is shared", report.log_kind(_rec("hub", "async_initialize_center", logging.INFO, "x")), "shared")
+fold_sum = "\n\n".join(report.build_summary_blocks(dict(diag, warnings=[], log=rs_log)))
+check("summary shows the fold count", "×500" in fold_sum, True)
+
+# The RS-485 function list must match hub.py, or a rename silently moves lines.
+import ast
+_hub_tree = ast.parse(open(os.path.join(REPO, "hub.py"), encoding="utf-8").read())
+_hub_funcs = {n.name for n in ast.walk(_hub_tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+check("hub RS-485 function names exist", sorted(report._HUB_RS485_FUNCS - _hub_funcs), [])
+
 # Summary puts warnings first and doesn't repeat them in the general log.
 diag_w = dict(diag)
 diag_w["warnings"] = [{"time": "2026-11-10T10:00:00", "level": "WARNING", "message": "Session prime failed"}]
