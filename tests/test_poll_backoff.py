@@ -380,8 +380,10 @@ class _Resp:
     def raise_for_status(self):
         pass
 
-    async def text(self):
-        return OK_BODY
+    charset = None
+
+    async def read(self):
+        return OK_BODY.encode()
 
 
 class _Session:
@@ -516,6 +518,29 @@ async def _overlap():
 asyncio.run(_overlap())
 check("overlapping poll is skipped, the next one runs", len(started), 2)
 check("  ...and the flag is cleared", api18._poll_running, False)
+
+
+# --- v1.4.27 (#3): an EUC-KR reply declared as utf-8 still decodes -------
+KR_REPLY = (
+    '<?xml version="1.0" encoding="utf-8"?>\r\n'
+    '<imap ver = "1.0" address ="10.0.0.1" sender = "101동 1001호">\r\n'
+    '<service type = "reply" name = "remote_access_light" result="ok">\r\n'
+    '<status_info unit_num="switch1" unit_status="on"/>\r\n'
+    "</service></imap>"
+)
+decoded = ip.decode_body(KR_REPLY.encode("cp949"), None)
+check("#3: EUC-KR body decodes", "101동 1001호" in decoded, True)
+check("  ...and parses as ok", ip.BestinIparkAppAPI._parse_xml_result(decoded)[0], "ok")
+check("  ...header charset wins", ip.decode_body("동".encode("cp949"), "euc-kr"), "동")
+check("  ...utf-8 body unchanged", ip.decode_body("동".encode(), None), "동")
+check("  ...bogus charset falls back", ip.decode_body("동".encode(), "x-nope"), "동")
+
+# A swallowed gather exception is logged and noted, not lost.
+api27 = ip.BestinIparkAppAPI.__new__(ip.BestinIparkAppAPI)
+api27._log_gather_errors("status", [None, UnicodeDecodeError("utf-8", b"\xb5", 0, 1, "bad")])
+events27 = list(api27._events)
+check("#3: gather exception noted", [e["result"] for e in events27], ["exception"])
+check("  ...with its type", events27[0]["error"].startswith("UnicodeDecodeError"), True)
 
 print()
 print("FAILURES:", failures if failures else "none")

@@ -244,6 +244,28 @@ def _describe(ex: BaseException) -> str:
     """
     return f"{type(ex).__name__}: {ex}" if str(ex) else type(ex).__name__
 
+def decode_body(raw: bytes, charset: str | None = None) -> str:
+    """응답 바이트를 글자로 / Decode a reply body.
+
+    정상 응답에는 동·호수가 한글로 들어 있어요. 어떤 단지 서버는 XML 에
+    utf-8 이라고 적어 두고 실제로는 EUC-KR 로 보내서, ``resp.text()`` 가
+    UnicodeDecodeError 를 내고 그 장치가 조용히 사라졌어요 (#3, 위례2차).
+    헤더의 charset, UTF-8, CP949 순서로 시도해요.
+
+    A good reply carries the unit (동/호) in Korean. Some complex servers
+    declare utf-8 but send EUC-KR, so ``resp.text()`` raised
+    UnicodeDecodeError and every device that answered vanished without a
+    log line (#3, Wirye 2). Try the header charset, UTF-8, then CP949.
+    """
+    for encoding in (charset, "utf-8", "cp949"):
+        if not encoding:
+            continue
+        try:
+            return raw.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", errors="replace")
+
 class BestinIparkAppAPI:
     """단지 중앙 서버 클라이언트 — Per-complex central-server client.
 
@@ -662,7 +684,7 @@ class BestinIparkAppAPI:
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 resp.raise_for_status()
-                return await resp.text()
+                return decode_body(await resp.read(), resp.charset)
         except (aiohttp.ClientError, asyncio.TimeoutError) as ex:
             # 전체 시간 초과는 ClientError 가 아니라 TimeoutError 로 옵니다.
             # v1.4.18 까지는 이 경우가 잡히지 않아 로그 없이 사라졌습니다.
@@ -983,7 +1005,9 @@ class BestinIparkAppAPI:
             else:
                 coros.append(self._fetch_class(cls))
 
-        await asyncio.gather(*coros, return_exceptions=True)
+        self._log_gather_errors(
+            "status", await asyncio.gather(*coros, return_exceptions=True)
+        )
         for n in polled_rooms:
             key = ("temper", n)
             if key not in self._class_ever_ok:
@@ -1042,10 +1066,32 @@ class BestinIparkAppAPI:
         sent about 14,400 requests a day that nearly all returned the same
         numbers.
         """
-        await asyncio.gather(
-            *(self._fetch_energy(kind) for kind in ENERGY_CATEGORIES),
-            return_exceptions=True,
+        self._log_gather_errors(
+            "energy",
+            await asyncio.gather(
+                *(self._fetch_energy(kind) for kind in ENERGY_CATEGORIES),
+                return_exceptions=True,
+            ),
         )
+
+    def _log_gather_errors(self, kind: str, results: list[Any]) -> None:
+        """gather 가 삼킨 오류를 남겨요 / Log errors that gather swallowed.
+
+        ``return_exceptions=True`` 는 오류를 결과로 돌려줄 뿐 아무것도 남기지
+        않아요. v1.4.26 까지는 그래서 #3 의 디코딩 오류가 로그에도 진단에도
+        보이지 않았어요.
+        ``return_exceptions=True`` hands errors back as results and logs
+        nothing, which is how the decode error in #3 stayed invisible in
+        both the log and diagnostics up to v1.4.26.
+        """
+        for result in results:
+            if isinstance(result, Exception):
+                LOGGER.warning(
+                    "%s 폴링 오류 / %s poll error: %s",
+                    kind, kind, _describe(result),
+                    exc_info=result,
+                )
+                self._note(kind, result="exception", error=_describe(result))
 
     # ------------------------------------------------------------------
     # 진단 기록 / Diagnostics records (v1.4.23)
