@@ -257,8 +257,15 @@ class ConnectionManager:
                 # 0x32 is a second gas valve with the same fixed 10-byte
                 # format as 0x31. Unknown, its third byte (0x80 = 128) was read
                 # as a length and swallowed the packets after it (laz-'s fork).
+                # 0x41 (도어락) 도 같은 10바이트 형식입니다 (02 41 00 …). 길이로
+                # 읽으면 00 이라 버려졌고, 02 41 80 응답은 128바이트로 읽혔습니다.
+                # 02 41 06 … 은 진짜 6바이트 패킷이라 그대로 둡니다 (#3 진단).
+                # 0x41 (doorlock) uses the same 10-byte format (02 41 00 ...).
+                # Read as a length, 00 got it dropped and a 02 41 80 reply would
+                # be read as 128 bytes. 02 41 06 ... is a real 6-byte packet and
+                # keeps its length byte (seen in #3's diagnostics).
                 if (
-                    (packet[1] in (0x31, 0x32) and packet[2] in [0x00, 0x01, 0x02, 0x80, 0x81, 0x82])
+                    (packet[1] in (0x31, 0x32, 0x41) and packet[2] in [0x00, 0x01, 0x02, 0x80, 0x81, 0x82])
                     or packet[1] == 0x61
                     or packet[1] == 0x17  # For AIO
                 ):

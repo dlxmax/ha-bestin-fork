@@ -381,6 +381,20 @@ async def connection_cases():
     check("0x32 framed as 10 bytes", (len(first), first[1]), (10, 0x32))
     check("packet after 0x32 not swallowed", (len(second), second[1]), (16, 0x28))
 
+    # 0x41 doorlock: 02 41 00 / 02 41 80 are fixed 10-byte packets (#3's
+    # diagnostics showed 02 41 00 dropped as an invalid length), while
+    # 02 41 06 01 xx cs is a real 6-byte packet.
+    door_q = bytes.fromhex("02410017000000000000")
+    door_r = bytes.fromhex("02418017800100000000")
+    door_6 = bytes.fromhex("024106017034")
+    cm = _socket_cm(door_q + door_r + door_6 + bytes(therm))
+    framed = [bytes(await cm.receive()) for _ in range(4)]
+    check(
+        "0x41 framed as 10, 10, 6 then thermostat",
+        [(len(p), p[1]) for p in framed],
+        [(10, 0x41), (10, 0x41), (6, 0x41), (16, 0x28)],
+    )
+
     # Real gas valve packets captured by Kevrik (https://github.com/Kevrik/ha-bestin),
     # including the 02 31 01 / 02 31 81 kind that upstream framed wrongly.
     real_gas = [
