@@ -17,19 +17,18 @@
 - [설치 / Installation](#설치--installation)
 - [준비 / Prerequisites (RS-485 only)](#준비--prerequisites-rs-485-only)
 - [기능 / Features](#기능--features)
-- [기여 / Contributing](#기여--contributing)
 - [문제 신고 / Reporting a problem](#문제-신고--reporting-a-problem)
-- [디버깅 / Debugging](#디버깅--debugging)
+- [기여 / Contributing](#기여--contributing)
 
 ## 프로젝트 소개 / About
 
-세 가지 연결 방식 중 본인 단지·환경에 맞는 것을 선택해 월패드를 Home Assistant 에 연동합니다. 통합과 모든 문서는 한국어 / 영어를 동시 지원하며, 기존 코드 경로는 그대로 유지된 채 새 옵션이 **추가**된 것이므로 기존 사용자에게 영향이 없습니다.  
-*Three connection methods, pick whichever matches your complex/setup. Integration and all docs are bilingual (Korean first, English second). The new option is **additive**: no existing code path was modified, so prior users see no behavioural change.*
+세 가지 연결 방식 중 본인 단지·환경에 맞는 것을 선택해 월패드를 Home Assistant 에 연동합니다. 통합과 모든 문서는 한국어 / 영어를 동시 지원합니다.  
+*Three connection methods, pick whichever matches your complex/setup. Integration and all docs are bilingual (Korean first, English second).*
 
 ## 유지보수 현황 / Maintenance status
 
-원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 의 작업이 v1.1.9 이후로 중단되어, 본 포크 [`dlxmax/ha-bestin-fork`](https://github.com/dlxmax/ha-bestin-fork) 가 유지보수를 이어 받았습니다. 본 포크의 직전 릴리스 v1.2.0 은 lunDreame v1.1.9 에서 발견된 버그를 정리한 버전입니다 (Python 3.14 호환, 게이트웨이 모드 감지 타임아웃, 무한 리로드 루프, 0x31 패킷 변형, 온도조절기 파싱 가드 등). v1.3.0 에서 신규 'iPark 스마트홈 앱' 옵션이 추가되었고, 현재 버전은 **v1.4.16** 입니다. 버전별 변경 내용은 [Releases](https://github.com/dlxmax/ha-bestin-fork/releases) 참조.  
-*Upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) development stopped after v1.1.9. This fork [`dlxmax/ha-bestin-fork`](https://github.com/dlxmax/ha-bestin-fork) has taken over maintenance. Our previous release **v1.2.0** carried bug fixes against lunDreame's v1.1.9 (Python 3.14 compatibility, gateway-mode detection timeout, infinite reload loop, 0x31 packet variants, thermostat parsing guard, etc.). v1.3.0 added the "iPark Smarthome App" option; the current release is **v1.4.16**. See [Releases](https://github.com/dlxmax/ha-bestin-fork/releases) for what changed in each version.*
+원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 의 작업이 v1.1.9 이후로 중단되어, 본 포크 [`dlxmax/ha-bestin-fork`](https://github.com/dlxmax/ha-bestin-fork) 가 유지보수를 이어 받았습니다. 버전별 변경 내용은 [Releases](https://github.com/dlxmax/ha-bestin-fork/releases) 참조.  
+*Upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) development stopped after v1.1.9. This fork [`dlxmax/ha-bestin-fork`](https://github.com/dlxmax/ha-bestin-fork) has taken over maintenance. See [Releases](https://github.com/dlxmax/ha-bestin-fork/releases) for what changed in each version.*
 
 ## 어떤 방식을 선택해야 하나요? / Which method should I pick?
 
@@ -37,7 +36,7 @@
 |---|---|---|
 | **로컬 RS-485 / Local RS-485** | 월패드 라인에 직접 연결할 하드웨어가 있고, 인터넷·서버 의존이 없는 구성을 선호.<br>*You have RS-485 hardware and prefer a server-free setup.* | [guide/install.md](./guide/install.md) |
 | **IPARK 스마트홈 클라우드 / IPARK Smart Home cloud** | 신축·중형 단지로 공식 클라우드 (`center.hdc-smart.com`) 가 정상 동작.<br>*Newer complexes where the official cloud responds.* | [guide/center.md](./guide/center.md) |
-| **iPark 스마트홈 앱 / iPark Smarthome App** _(신규 / new)_ | 안드로이드 iPark 스마트홈 앱은 동작하나 RS-485 어댑터 / 클라우드 / 단지 웹사이트가 동작하지 않는 구형 단지.<br>*Older complexes where the Android iPark Smarthome app works but RS-485, cloud, or the apartment website don't.* | [guide/iparkapp.md](./guide/iparkapp.md) |
+| **iPark 스마트홈 앱 / iPark Smarthome App** | 안드로이드 iPark 스마트홈 앱은 동작하나 RS-485 어댑터 / 클라우드 / 단지 웹사이트가 동작하지 않는 구형 단지.<br>*Older complexes where the Android iPark Smarthome app works but RS-485, cloud, or the apartment website don't.* | [guide/iparkapp.md](./guide/iparkapp.md) |
 
 선택이 어려우시면 **iPark 스마트홈 앱 옵션** 부터 시도해 보세요. 별도 하드웨어 / 토큰 등록이 필요 없어 가장 진입 장벽이 낮습니다.  
 *If unsure, try the **iPark Smarthome App** option first: no hardware, no token registration, lowest barrier to entry.*
@@ -71,7 +70,7 @@
    - 버전 (1.0 / 2.0) 선택 후 단지 IP / UUID 등록 절차를 진행합니다. / *Pick the version (1.0 / 2.0) and complete the IP / UUID registration steps.*
    - 자세한 절차는 [guide/center.md](./guide/center.md) 참조. / *Full instructions in [guide/center.md](./guide/center.md).*
 
-   #### 3. iPark 스마트홈 앱 / iPark Smarthome App _(신규 / new)_
+   #### 3. iPark 스마트홈 앱 / iPark Smarthome App
    - 자동 조회된 단지 목록에서 자신의 단지를 선택하고, 안드로이드 앱과 동일한 아이디·비밀번호로 로그인합니다. IP·토큰 입력이 필요 없습니다. / *Pick your complex from the auto-fetched directory, then sign in with the same credentials you use in the Android app. No IP entry, no token copy-paste.*
    - 자세한 내용은 [guide/iparkapp.md](./guide/iparkapp.md) 참조. / *See [guide/iparkapp.md](./guide/iparkapp.md) for details.*
 
@@ -103,32 +102,16 @@ iPark 스마트홈 앱 / 클라우드 옵션은 별도의 하드웨어가 필요
 | 가스 / Gas valve | O | 닫기 전용 (앱 동일) / Close-only (matches the app) |
 | 도어락 / Door lock | O | RS-485 · 클라우드: 스위치, 켜기와 끄기가 같은 RS-485 패킷을 보내며 클라우드 v1 은 명령을 지원하지 않음. iPark 스마트홈 앱: 상태 표시만 (앱 동일) / RS-485 and cloud: switch; on and off send the same RS-485 packet, and cloud v1 does not support the command. iPark Smarthome App: status only (matches the app) |
 | 난방 / Heating | O | 객실 + 추가 비제어 난방 온도 센서 (있는 경우, 정확한 의미는 단지마다 상이) / Per-room + an extra uncontrollable heat-temperature sensor where the wallpad reports more 'rooms' than it has thermostats (exact meaning varies by complex) |
-| 객실별 실내 온도 센서 / Per-room temperature sensors | O | iPark 스마트홈 앱 옵션 한정. 통합 옵션에서 객실마다 HA 온도 센서를 지정하면 표시 온도와 듀티 사이클 제어가 월패드 대신 그 센서를 사용합니다 (앱 경로는 월패드 온도를 정수로 내림). v1.4.16+. / iPark Smarthome App option only. Pick an HA temperature sensor per room in the integration options and the displayed temperature and duty-cycle control use it instead of the wallpad (the app path floors wallpad readings to whole degrees). v1.4.16+. |
+| 객실별 실내 온도 센서 / Per-room temperature sensors | O | iPark 스마트홈 앱 옵션 한정. 통합 옵션에서 객실마다 HA 온도 센서를 지정하면 표시 온도와 듀티 사이클 제어가 월패드 대신 그 센서를 사용합니다 (앱 경로는 월패드 온도를 정수로 내림). / iPark Smarthome App option only. Pick an HA temperature sensor per room in the integration options and the displayed temperature and duty-cycle control use it instead of the wallpad (the app path floors wallpad readings to whole degrees). |
 | 외출 모드 / Away mode | O | iPark 스마트홈 앱 옵션 한정 (별도 entity) / iPark Smarthome App option only (separate entity) |
 | 에너지 모니터링 / Energy monitoring | O | 전기 / 가스 / 난방 / 온수 / 수도, iPark 스마트홈 앱 옵션 한정. 매시 10분에 갱신, 소수 첫째 자리 표시, 검침값이 없으면 0 대신 '-'. / Electric / Gas / Heat / Hot water / Water, iPark Smarthome App option only. Refreshed 10 minutes past each hour, shown to one decimal, a dash instead of a false 0 when no reading is published. |
-| 표준 HA 프리셋 (난방) / Standard HA presets (heating) | O | Comfort / Eco / Sleep / Away / Vacation / Frost / Boost, 객실별 / per-room. iPark 스마트홈 앱 옵션에서는 슬로우 듀티 사이클 (시간 비례 제어) 이 함께 적용됩니다 (다른 게이트웨이는 setpoint 만 변경). v1.4.0+. / On the iPark Smarthome App option these also engage a software slow duty cycle (time-proportional control); on other gateways they just change the setpoint. v1.4.0+. |
-| HA 자동화 Blueprints | O | 야간 setback / 휴가 일정 / 외출 자동 감지. `blueprints/automation/bestin/` 의 3 개 YAML 을 한 번 임포트하면 HA UI 에서 객실·시각·도우미를 채워 사용. v1.4.2+. / Three importable blueprints (night setback, vacation window, away-when-empty) under `blueprints/automation/bestin/`. v1.4.2+. |
-| 단지 서버 부하 감소·장애 대응 / Server load and outages | O | iPark 스마트홈 앱 옵션 한정. 난방은 방마다 켜진 방은 5분, 꺼진 방은 30분, 그 외 장치는 60초마다 조회하고, 세대에 없는 장치는 조회 빈도를 줄입니다. 서버 장애 시 5분마다 재시도하고 HA 알림을 띄웁니다. v1.4.12+. / iPark Smarthome App option only. Thermostats are polled room by room, every 5 min for a room that is on and every 30 min for one that is off, other devices every 60 s, and devices the home doesn't have are backed off. During a server outage it retries every 5 min and raises an HA notification. v1.4.12+. |
+| 표준 HA 프리셋 (난방) / Standard HA presets (heating) | O | Comfort / Eco / Sleep / Away / Vacation / Frost / Boost, 객실별 / per-room. iPark 스마트홈 앱 옵션에서는 슬로우 듀티 사이클 (시간 비례 제어) 이 함께 적용됩니다 (다른 게이트웨이는 setpoint 만 변경). / On the iPark Smarthome App option these also engage a software slow duty cycle (time-proportional control); on other gateways they just change the setpoint. |
+| HA 자동화 Blueprints | O | 야간 setback / 휴가 일정 / 외출 자동 감지. `blueprints/automation/bestin/` 의 3 개 YAML 을 한 번 임포트하면 HA UI 에서 객실·시각·도우미를 채워 사용. / Three importable blueprints (night setback, vacation window, away-when-empty) under `blueprints/automation/bestin/`. |
+| 단지 서버 부하 감소·장애 대응 / Server load and outages | O | iPark 스마트홈 앱 옵션 한정. 난방은 방마다 켜진 방은 5분, 꺼진 방은 30분, 그 외 장치는 60초마다 조회하고, 세대에 없는 장치는 조회 빈도를 줄입니다. 서버 장애 시 5분마다 재시도하고 HA 알림을 띄웁니다. / iPark Smarthome App option only. Thermostats are polled room by room, every 5 min for a room that is on and every 30 min for one that is off, other devices every 60 s, and devices the home doesn't have are backed off. During a server outage it retries every 5 min and raises an HA notification. |
 
-- 추가 기기·속성이 필요하면 이슈 탭에 등록해 주세요. / *Open an issue if your household has devices not in the table above.*
-- IPARK 스마트홈 클라우드 연동은 1.2.0 부터 지원됩니다. / *IPARK Smart Home cloud integration is supported from v1.2.0 onward.*
-- iPark 스마트홈 앱 옵션은 본 포크에서 새로 추가되었습니다. / *The iPark Smarthome App option is new in this fork.*
-
-## 기여 / Contributing
-
-문제가 있나요? [Issues](https://github.com/dlxmax/ha-bestin-fork/issues) 탭에 작성해 주세요.  
-*Found a bug? Please file an [issue](https://github.com/dlxmax/ha-bestin-fork/issues).*
-
-- 테스트 중이며 다양한 환경에서의 검증이 필요합니다. / *Still under testing; coverage from more household configurations is welcome.*
-- 월패드 버전 3.0 은 미테스트입니다. / *Wallpad 3.0 is not yet tested.*
-- 시리얼 통신은 미테스트입니다. / *Serial communication has not been tested.*
-- 좋은 아이디어가 있으면 [Pull requests](https://github.com/dlxmax/ha-bestin-fork/pulls) 환영합니다. / *Got a better idea? Open a [pull request](https://github.com/dlxmax/ha-bestin-fork/pulls).*
-- 본 통합 사용으로 발생하는 문제에 대해 책임지지 않습니다. / *Use at your own risk; no warranty is provided.*
+- 추가 기기·속성이 필요하면 [이슈](https://github.com/dlxmax/ha-bestin-fork/issues) 를 등록해 주세요. / *Open an [issue](https://github.com/dlxmax/ha-bestin-fork/issues) if your household has devices not in the table above.*
 
 ## 문제 신고 / Reporting a problem
-
-로그 설정 없이 바로 신고할 수 있습니다 (v1.4.23 부터).  
-*No logger setup needed (v1.4.23 and later).*
 
 1. **설정 > 기기 및 서비스 > BESTIN > ⚙ (톱니바퀴) > 문제 신고** 를 고르고, 무엇이 안 되는지 적습니다 (비워 두어도 됩니다).  
    *Settings > Devices & services > BESTIN > ⚙ (gear icon) > Report a problem, and describe what is not working (optional).*
@@ -143,10 +126,11 @@ iPark 스마트홈 앱 / 클라우드 옵션은 별도의 하드웨어가 필요
 설정 단계에서 오류가 나면 양식에 실제 오류와 신고 링크가 함께 표시됩니다.  
 *If setup itself fails, the form shows the actual error with a report link.*
 
-## 디버깅 / Debugging
+<details>
+<summary>디버그 로그를 요청받았을 때 / If you are asked for a debug log</summary>
 
-더 자세한 로그가 필요할 때만 쓰세요. 문제 파악을 위해 아래 코드를 `configuration.yaml` 에 추가 후 Home Assistant 를 재시작하세요. 생성된 디버그 로그를 이슈 등록 시 첨부해 주시면 빠른 진단에 도움이 됩니다.  
-*Only needed when more detail is asked for. To investigate issues, add the snippet below to `configuration.yaml` and restart Home Assistant. Please attach the generated debug log when opening an issue.*
+`configuration.yaml` 에 아래를 추가하고 HA 를 재시작한 뒤, 문제를 다시 일으키고 로그를 이슈에 붙여 주세요.  
+*Add this to `configuration.yaml`, restart HA, reproduce the problem and paste the log into the issue.*
 
 ```yaml
 logger:
@@ -154,3 +138,11 @@ logger:
   logs:
     custom_components.bestin: debug
 ```
+
+</details>
+
+## 기여 / Contributing
+
+- 월패드 버전 3.0 과 시리얼 (USB-to-485) 통신은 아직 테스트되지 않았습니다. / *Wallpad 3.0 and serial (USB-to-485) communication are not tested yet.*
+- 좋은 아이디어가 있으면 [Pull requests](https://github.com/dlxmax/ha-bestin-fork/pulls) 환영합니다. / *Got a better idea? Open a [pull request](https://github.com/dlxmax/ha-bestin-fork/pulls).*
+- 본 통합 사용으로 발생하는 문제에 대해 책임지지 않습니다. / *Use at your own risk; no warranty is provided.*

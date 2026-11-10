@@ -14,17 +14,12 @@
 |---|---|---|---|
 | **로컬 RS-485 / Local RS-485** | 월패드 후면 라인을 EW11 또는 USB-RS485 어댑터로 직접 연결.<br>*Direct line tap with EW11 or a USB-to-RS-485 adapter.* | 인터넷 / 단지 서버 의존 없음<br>*Zero internet / server dependency* | 하드웨어 필요 · RS-422 구형 월패드는 신호 해석 불가 · 시리얼은 미테스트<br>*Needs hardware; older RS-422 wallpads can't be parsed; serial untested* |
 | **IPARK 스마트홈 클라우드 / IPARK Smart Home cloud** | 현대 클라우드 (`center.hdc-smart.com`) 와 통신 (Smart Home v1 / v2).<br>*Talks to the official cloud (`center.hdc-smart.com`).* | 하드웨어 불필요 · 신축·중형 단지에서 안정적<br>*No hardware; stable on newer complexes* | UUID 등록 절차 복잡 · 일부 구형 단지에서 무반응<br>*UUID registration is fiddly; unresponsive on some older complexes* |
-| **iPark 스마트홈 앱 / iPark Smarthome App** _(신규 / new)_ | 단지 중앙 서버 (예: `220.79.141.134`) 와 안드로이드 앱과 동일한 방식으로 통신.<br>*Talks to the apartment complex's central server the same way the Android app does.* | 토큰 복사 불필요 · 단지 이름만으로 설정 · 웹사이트 제어가 무반응이던 가정에서도 동작<br>*No token; pick the complex by name; works where the website-controls silently fail* | 단지 중앙 서버가 살아 있어야 함<br>*Requires the complex's central server to be online* |
-
-## 무엇이 새로워졌는가 / What's new in this fork
-
-본 포크는 기존 두 가지 옵션 (로컬 RS-485, IPARK 스마트홈 클라우드) 의 코드를 그대로 유지한 채 세 번째 옵션 'iPark 스마트홈 앱' 만 **추가**합니다. 기존 사용자에게는 어떠한 동작 변화도 없습니다.  
-*This fork strictly **adds** the third "iPark Smarthome App" option without touching any existing code paths. Users of the previous two methods see no behavioural change.*
+| **iPark 스마트홈 앱 / iPark Smarthome App** | 단지 중앙 서버와 안드로이드 앱과 동일한 방식으로 통신.<br>*Talks to the apartment complex's central server the same way the Android app does.* | 토큰 복사 불필요 · 단지 이름만으로 설정 · 웹사이트 제어가 무반응이던 가정에서도 동작<br>*No token; pick the complex by name; works where the website-controls silently fail* | 단지 중앙 서버가 살아 있어야 함<br>*Requires the complex's central server to be online* |
 
 ## 유지보수 현황 / Maintenance status
 
-원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 의 작업이 v1.1.9 이후로 중단되어, 본 포크가 유지보수를 이어 받았습니다. 본 포크의 직전 릴리스 v1.2.0 은 lunDreame v1.1.9 에서 발견된 버그를 정리한 버전입니다 (Python 3.14 호환, 게이트웨이 모드 감지 타임아웃, 무한 리로드 루프, 0x31 패킷 변형, 온도조절기 파싱 가드 등). 본 **v1.3.0** 에서는 신규 'iPark 스마트홈 앱' 옵션이 추가되었습니다.  
-*Upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) development stopped after v1.1.9. This fork has taken over maintenance. Our previous release **v1.2.0** carried bug fixes against lunDreame's v1.1.9 (Python 3.14 compatibility, gateway-mode detection timeout, infinite reload loop, 0x31 packet variants, thermostat parsing guard, etc.). The new **v1.3.0** adds the "iPark Smarthome App" option.*
+원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 의 작업이 v1.1.9 이후로 중단되어, 본 포크가 유지보수를 이어 받았습니다. 버전별 변경 내용은 [Releases](https://github.com/dlxmax/ha-bestin-fork/releases) 참조.  
+*Upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) development stopped after v1.1.9. This fork has taken over maintenance. See [Releases](https://github.com/dlxmax/ha-bestin-fork/releases) for what changed in each version.*
 
 ## 왜 만들었는가 / Why this exists
 
@@ -53,7 +48,7 @@
 
 ## 더 알아보기 / Learn more
 
-- [README.md](./README.md) — 설치 / 설정 / 디버깅 / *install, setup, debugging*
+- [README.md](./README.md): 설치 / 설정 / 문제 신고 / *install, setup, reporting a problem*
 - [guide/iparkapp.md](./guide/iparkapp.md) — iPark 스마트홈 앱 옵션 상세 / *iPark Smarthome App option in detail*
 - [guide/center.md](./guide/center.md) — 기존 클라우드 옵션 (1.0 / 2.0) / *existing cloud option (v1.0 / v2.0)*
 - [guide/install.md](./guide/install.md) — RS-485 어댑터 설치 / *RS-485 adapter install*

@@ -1,7 +1,7 @@
 """iPark 스마트홈 앱 — Constants and device-class table.
 
 iPark Smarthome App method talks to a per-complex central PHP server (e.g.
-``220.79.141.134``) the way the official Android WebView app does. See
+``203.0.113.10``) the way the official Android WebView app does. See
 ``temp/PROTOCOL_FINDINGS.md`` (gitignored) for the reverse-engineered details.
 
 이 모듈은 신규 'iPark 스마트홈 앱' 연동을 위한 상수와 장치 클래스 표를 정의합니다.
@@ -33,7 +33,7 @@ CONF_IPARKAPP_PASSWORD = "iparkapp_password"
 #   {
 #     "sitecode":   "0051",            # SITECODE
 #     "sitename":   "남양주 별내",     # SITENAME (human-readable)
-#     "ip":         "220.79.141.134",  # NETW_ADDR
+#     "ip":         "203.0.113.10",  # NETW_ADDR
 #     "weather":    "4136031000",      # SITEWEATHER (passed to login)
 #     "lat":        "127.1187887",     # LAT field as-returned by directory
 #     "lng":        "37.6629579",      # LNG field as-returned by directory

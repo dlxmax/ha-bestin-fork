@@ -1,12 +1,12 @@
 # iPark 스마트홈 앱 연동 가이드 / iPark Smarthome App Integration Guide
 
-이 옵션은 안드로이드 [iPark 스마트홈 앱](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet) 과 동일한 방식으로 단지의 중앙 PHP 서버 (예: `220.79.141.134`) 에 직접 통신합니다. 월패드 펌웨어가 RS-485 연결을 거부하거나, 클라우드(`center.hdc-smart.com`) 가 작동하지 않는 구형 단지에서 가장 잘 동작합니다.  
-*This option talks directly to the apartment complex's central PHP server (e.g. `220.79.141.134`) using the same protocol as the official Android [iPark Smarthome app](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet). It works best for older complexes whose wallpads do not accept RS-485 from third-party adapters and where the official cloud (`center.hdc-smart.com`) does not respond.*
+이 옵션은 안드로이드 [iPark 스마트홈 앱](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet) 과 동일한 방식으로 단지의 중앙 PHP 서버 (예: `203.0.113.10`) 에 직접 통신합니다. 월패드 펌웨어가 RS-485 연결을 거부하거나, 클라우드(`center.hdc-smart.com`) 가 작동하지 않는 구형 단지에서 가장 잘 동작합니다.  
+*This option talks directly to the apartment complex's central PHP server (e.g. `203.0.113.10`) using the same protocol as the official Android [iPark Smarthome app](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet). It works best for older complexes whose wallpads do not accept RS-485 from third-party adapters and where the official cloud (`center.hdc-smart.com`) does not respond.*
 
 ## 만들게 된 이유 / Why this option was added
 
-본 포크 작성자의 가정에서는 두 가지 기존 방식이 모두 동작하지 않았습니다. 월패드가 RS-422 라인을 사용해 RS-485 어댑터로 신호 해석이 어려웠고, 같은 단지 서버 IP (예: `http://220.79.141.134/`) 의 웹사이트는 로그인은 되지만 모든 제어 명령이 응답 없이 사라졌습니다. 반면 안드로이드 iPark 스마트홈 앱은 같은 서버에서 정상적으로 조명을 켜고 끌 수 있었습니다. 앱을 분석한 결과, 앱은 웹사이트와 거의 동일한 호출을 보내지만 두 가지 차이가 있었습니다.  
-*Both existing methods failed in this fork author's home. The wallpad uses RS-422 (not 485), so off-the-shelf RS-485 adapters could not parse the wallpad's frames; and the apartment-complex website (e.g. `http://220.79.141.134/`) accepted login but every control command vanished silently. The Android iPark Smarthome app worked fine against the same server. Static analysis of the APK revealed the app makes near-identical calls but with two critical differences:*
+본 포크 작성자의 가정에서는 두 가지 기존 방식이 모두 동작하지 않았습니다. 월패드가 RS-422 라인을 사용해 RS-485 어댑터로 신호 해석이 어려웠고, 같은 단지 서버 IP (예: `http://203.0.113.10/`) 의 웹사이트는 로그인은 되지만 모든 제어 명령이 응답 없이 사라졌습니다. 반면 안드로이드 iPark 스마트홈 앱은 같은 서버에서 정상적으로 조명을 켜고 끌 수 있었습니다. 앱을 분석한 결과, 앱은 웹사이트와 거의 동일한 호출을 보내지만 두 가지 차이가 있었습니다.  
+*Both existing methods failed in this fork author's home. The wallpad uses RS-422 (not 485), so off-the-shelf RS-485 adapters could not parse the wallpad's frames; and the apartment-complex website (e.g. `http://203.0.113.10/`) accepted login but every control command vanished silently. The Android iPark Smarthome app worked fine against the same server. Static analysis of the APK revealed the app makes near-identical calls but with two critical differences:*
 
 1. URL 경로가 `/webapp/data/...` 로 끝나야 합니다 (웹사이트 코드의 `/mobilehome/data/...` 가 아닙니다).  
    *URLs use `/webapp/data/...` (not `/mobilehome/data/...` like some website code paths).*
@@ -221,9 +221,6 @@ ON 시간 = cycle × duty% (사이클 시작부터) / ON for cycle × duty% from
 
 ## 문제 신고 / Reporting a problem
 
-로그 설정 없이 바로 신고할 수 있습니다 (v1.4.23 부터).  
-*No logger setup needed (v1.4.23 and later).*
-
 1. **설정 > 기기 및 서비스 > BESTIN > ⚙ (톱니바퀴) > 문제 신고** 를 고르고, 무엇이 안 되는지 적습니다 (비워 두어도 됩니다).  
    *Settings > Devices & services > BESTIN > ⚙ (gear icon) > Report a problem, and describe what is not working (optional).*
 2. 다음 화면에서 **진단 파일 내려받기** 를 누른 뒤 **GitHub 이슈 열기** 를 엽니다. 버전, 연결 방식, 장치별 마지막 응답, 최근 오류가 미리 채워져 있습니다.  
@@ -237,10 +234,11 @@ ON 시간 = cycle × duty% (사이클 시작부터) / ON for cycle × duty% from
 설정 단계에서 오류가 나면 양식에 실제 오류와 신고 링크가 함께 표시됩니다.  
 *If setup itself fails, the form shows the actual error with a report link.*
 
-## 디버깅 / Debugging
+<details>
+<summary>디버그 로그를 요청받았을 때 / If you are asked for a debug log</summary>
 
-더 자세한 로그가 필요할 때만 쓰세요. 문제가 있는 경우 `configuration.yaml` 에 아래 내용을 추가하고 HA 를 재시작하면 상세 로그를 얻을 수 있습니다.  
-*Only needed when more detail is asked for. If something doesn't work, add the snippet below to `configuration.yaml` and restart HA to get verbose logs.*
+`configuration.yaml` 에 아래를 추가하고 HA 를 재시작한 뒤, 문제를 다시 일으키고 로그를 이슈에 붙여 주세요.  
+*Add this to `configuration.yaml`, restart HA, reproduce the problem and paste the log into the issue.*
 
 ```yaml
 logger:
@@ -248,3 +246,5 @@ logger:
   logs:
     custom_components.bestin: debug
 ```
+
+</details>

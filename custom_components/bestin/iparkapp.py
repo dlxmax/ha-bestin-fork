@@ -1,6 +1,6 @@
 """iPark 스마트홈 앱 — Client for the new gateway type.
 
-이 모듈은 단지 중앙 서버(예: ``http://220.79.141.134/``)와 통신합니다.
+이 모듈은 단지 중앙 서버(예: ``http://203.0.113.10/``)와 통신합니다.
 공식 안드로이드 앱(WebView)이 사용하는 URL과 헤더를 그대로 흉내냅니다.
 This client talks to the per-complex central PHP server using the same
 URL and headers as the official Android app's WebView.

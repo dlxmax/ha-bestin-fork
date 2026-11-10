@@ -104,7 +104,7 @@ def check(name, got, want):
 
 USER = "kimtester"
 PASSWORD = "S3cret#pw!"
-SERVER_IP = "220.79.141.134"
+SERVER_IP = "203.0.113.10"
 ENTRY_DATA = {
     "iparkapp_site": {
         "sitecode": "0051",
