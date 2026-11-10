@@ -7,7 +7,7 @@ from homeassistant.const import Platform
 
 DOMAIN = "bestin"
 NAME = "BESTIN"
-VERSION = "1.4.27"
+VERSION = "1.4.28"
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
