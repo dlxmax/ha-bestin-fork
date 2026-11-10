@@ -447,7 +447,11 @@ class BestinCenterAPI(CenterAPIv2):
         parts = device_id.split("_")
         device_type = parts[1]
         room_id = int(parts[2])
-        pos_id = 0
+        # None 은 "기기 ID 에 위치 번호가 없음" 입니다. 0 은 실제 위치 번호라서
+        # 방 번호로 바꾸면 안 됩니다. (pjb5592 님 포크에서 찾은 문제)
+        # None means "the device ID has no position". 0 is a real position and
+        # must not fall back to the room number. (Found in pjb5592's fork.)
+        pos_id = None
         sub_type = None
 
         if len(parts) > 3:
@@ -478,14 +482,17 @@ class BestinCenterAPI(CenterAPIv2):
             if device_type == "doorlock":
                 LOGGER.warning("For doorlock, command is not supported.")
             else:
-                unit_id = f"{sub_type}{pos_id or room_id}" \
-                    if kwargs else f"{device_type}{pos_id or ''}"
+                unit_id = f"{sub_type}{room_id if pos_id is None else pos_id}" \
+                    if kwargs else f"{device_type}{'' if pos_id is None else pos_id}"
                 await self.request_home_device(device_type, room_id, unit_id, value)
         else:
             if device_type == "elevator":
                 await self.elevator_call_request()
             else:
-                unit_id = f"{sub_type}{pos_id or room_id}" if kwargs else f"{device_type}1"
+                unit_id = (
+                    f"{sub_type}{room_id if pos_id is None else pos_id}"
+                    if kwargs else f"{device_type}1"
+                )
                 await self.request_feature_command(device_type, room_id, unit_id, value)
 
     def get_devices_from_domain(self, domain: str) -> list:

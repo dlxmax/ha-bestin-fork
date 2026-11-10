@@ -475,6 +475,71 @@ async def stop_waits():
 
 asyncio.run(stop_waits())
 
+
+# Fixes found in pjb5592's fork.
+class _FanFeature(enum.IntFlag):
+    SET_SPEED = 1
+    TURN_ON = 2
+    TURN_OFF = 4
+    PRESET_MODE = 8
+
+
+sys.modules["homeassistant.components.fan"].FanEntity = _Entity
+sys.modules["homeassistant.components.fan"].FanEntityFeature = _FanFeature
+sys.modules["homeassistant.components.fan"].ATTR_PRESET_MODE = "preset_mode"
+sys.modules["homeassistant.components.fan"].ATTR_PRESET_MODES = "preset_modes"
+_module("homeassistant.util")
+_module(
+    "homeassistant.util.percentage",
+    ordered_list_item_to_percentage=lambda items, item: (items.index(item) + 1) * 100 // len(items),
+    percentage_to_ordered_list_item=lambda items, pct: items[0],
+)
+sys.modules["homeassistant.const"].STATE_ON = "on"
+sys.modules["homeassistant.const"].STATE_OFF = "off"
+fan = _load("fan")
+
+for label, on_off, speed, want in (
+    ("stopped (speed 0)", 0x00, 0x00, 0),
+    ("speed 1", 0x01, 0x01, 33),
+    ("speed 3", 0x01, 0x03, 100),
+):
+    packet = bytearray(10)
+    packet[5], packet[6] = on_off, speed
+    _, state = controller.BestinController.parse_fan(None, packet)
+    entity = object.__new__(fan.BestinFan)
+    entity._device_info = types.SimpleNamespace(state=state)
+    entity._speed_list = state["speed_list"]
+    check(f"local fan percentage when {label}", entity.percentage, want)
+
+# Gen2 room 1 with two lights: the first dims, the second is on/off only.
+packet = bytearray(18 + 13 * 2)
+packet[1], packet[10], packet[11] = 0x31, 2, 0
+packet[18], packet[19], packet[20] = 0x01, 50, 30
+packet[31], packet[32], packet[33] = 0x01, 0, 0
+state = controller.BestinController.parse_state_gen2(None, packet)
+lights = state[1]["light"]
+check(
+    "Gen2 light without dimming is kept",
+    sorted(k for k in lights if not k.startswith("dcvalue")),
+    ["0", "1"],
+)
+check("Gen2 on/off light state", lights["1"]["state"], True)
+
+
+async def missing_maker():
+    ctrl3 = object.__new__(controller.BestinController)
+    queue = {"device_type": "nosuch", "timestamp": 0, "room_id": 0,
+             "pos_id": 0, "sub_type": None, "value": True}
+    raised = None
+    try:
+        await ctrl3.send_packet_queue(queue)
+    except Exception as ex:
+        raised = type(ex).__name__
+    check("missing packet maker is skipped without error", (raised, "command_packet" in queue), (None, False))
+
+
+asyncio.run(missing_maker())
+
 print()
 print("FAILURES:", failures if failures else "none")
 sys.exit(1 if failures else 0)

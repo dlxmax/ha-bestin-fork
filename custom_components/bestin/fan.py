@@ -116,7 +116,13 @@ class BestinFan(BestinDevice, FanEntity):
             # iparkapp ventil — no speed control, surface on/off as 0/100.
             return 100 if self.is_on else 0
         speed = self._device_info.state[WIND_SPEED]
-        if speed == STATE_OFF:
+        # 로컬 RS-485 는 꺼진 팬의 속도를 문자열 "off" 가 아닌 숫자 0 으로 보냅니다.
+        # 목록에 없는 값이면 ValueError 대신 0 을 돌려줍니다.
+        # (pjb5592 님 포크에서 찾은 문제)
+        # Local RS-485 reports a stopped fan's speed as the number 0, not "off".
+        # A value outside the speed list returns 0 instead of raising ValueError.
+        # (Found in pjb5592's fork.)
+        if speed == STATE_OFF or speed not in self._speed_list:
             return 0
         return ordered_list_item_to_percentage(self._speed_list, speed)
 

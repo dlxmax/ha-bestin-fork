@@ -563,13 +563,18 @@ class BestinController:
             brightness, color_temp = packet[l_idx + 1], packet[l_idx + 2]
             dc_value = int.from_bytes(packet[l_idx + 8:l_idx + 10], byteorder="big") / 10
 
-            if brightness and color_temp:
-                state_gen2["light"][str(i)] = {
-                    ATTR_STATE: packet[l_idx] == 0x01,
-                    ColorMode.BRIGHTNESS: brightness,
-                    ColorMode.COLOR_TEMP: color_temp,
-                }
-                state_gen2["light"][f"dcvalue_{str(i)}"] = dc_value
+            # 밝기 조절이 없는 조명은 밝기와 색온도가 0 입니다. 예전에는 이런
+            # 조명을 건너뛰어 엔티티가 생기지 않았습니다. light.py 는 0 이면
+            # 켜기/끄기 전용으로 처리합니다. (pjb5592 님 포크에서 찾은 문제)
+            # Lights without dimming report 0 brightness and color temperature.
+            # They used to be skipped, so they never got an entity. light.py
+            # treats 0 as on/off only. (Found in pjb5592's fork.)
+            state_gen2["light"][str(i)] = {
+                ATTR_STATE: packet[l_idx] == 0x01,
+                ColorMode.BRIGHTNESS: brightness,
+                ColorMode.COLOR_TEMP: color_temp,
+            }
+            state_gen2["light"][f"dcvalue_{str(i)}"] = dc_value
             l_idx += 13
 
         for i in range(o_count):
@@ -652,7 +657,15 @@ class BestinController:
 
     async def send_packet_queue(self, queue: dict):
         """Send a packet from the queue"""
-        command_packet = getattr(self, f"make_{queue['device_type']}_packet", None)(
+        # 만드는 함수가 없으면 None(...) 호출로 TypeError 가 나기 전에 기록하고
+        # 건너뜁니다. (pjb5592 님 포크에서 찾은 문제)
+        # With no maker, log and skip instead of calling None(...) and raising
+        # TypeError. (Found in pjb5592's fork.)
+        packet_maker = getattr(self, f"make_{queue['device_type']}_packet", None)
+        if packet_maker is None:
+            LOGGER.error("No packet maker for device '%s'", queue["device_type"])
+            return
+        command_packet = packet_maker(
             queue["timestamp"],
             queue["room_id"],
             queue["pos_id"],

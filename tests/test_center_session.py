@@ -177,9 +177,25 @@ async def test_failed_start_closes_session():
     check("failed start closes the session", [s.closed for s in sessions], [True])
 
 
+async def test_position_zero():
+    """A device ID ending in _0 means position 0, not "use the room number"."""
+    api = make_api()
+    sent = []
+
+    async def feature(device_type, room_id, unit_id, value):
+        sent.append(unit_id)
+
+    api.request_feature_command = feature
+    await api.enqueue_command("bestin_light_3_0", True, state=True)
+    await api.enqueue_command("bestin_light_3", True, state=True)
+    await api.enqueue_command("bestin_light_3_2", True, state=True)
+    check("position 0 stays 0, no position uses the room", sent, ["state0", "state3", "state2"])
+
+
 async def main():
     await test_stop_closes_session()
     await test_failed_start_closes_session()
+    await test_position_zero()
 
 
 asyncio.run(main())
