@@ -362,6 +362,17 @@ check("warnings and table kept", ("WARNINGS" in tbody, "TABLE" in tbody), (True,
 check("kept blocks stay in display order", tbody.index("TABLE") < tbody.index("WARNINGS"), True)
 check("dropped count noted", "2 summary block(s) left out" in tbody, True)
 
+# Aware (UTC) datetimes from HA's scheduler come out as naive local time,
+# matching every other timestamp in the diagnostics (#3).
+import datetime as _dt
+_utc = _dt.datetime(2026, 11, 10, 6, 34, 12, tzinfo=_dt.timezone.utc)
+check(
+    "aware datetime shown as local time",
+    report.scrub_obj({"t": _utc}, []),
+    {"t": _utc.astimezone().replace(tzinfo=None).isoformat(timespec="seconds")},
+)
+check("naive datetime unchanged", report.scrub_obj({"t": _utc.replace(tzinfo=None)}, []), {"t": "2026-11-10T06:34:12"})
+
 if failures:
     print("\nFAILURES:", failures)
     sys.exit(1)

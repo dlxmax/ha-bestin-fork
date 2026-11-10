@@ -155,6 +155,11 @@ def scrub_obj(obj: Any, secrets: Iterable[str] = ()) -> Any:
         if isinstance(value, set):
             return sorted((walk(v) for v in value), key=str)
         if isinstance(value, datetime):
+            # HA 의 예약 시각은 UTC 이고 나머지는 현지 시각이라, 모두 현지
+            # 시각으로 맞춥니다. HA's scheduler hands us UTC times while
+            # everything else is naive local time: show all of it as local.
+            if value.tzinfo is not None:
+                value = value.astimezone().replace(tzinfo=None)
             return value.isoformat(timespec="seconds")
         if isinstance(value, (bytes, bytearray)):
             return value.hex()
