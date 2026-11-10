@@ -9,6 +9,8 @@ from homeassistant.components.climate.const import (
     ATTR_PRESET_MODE,
     ATTR_PRESET_MODES,
     ATTR_CURRENT_TEMPERATURE,
+    ATTR_HVAC_ACTION,
+    HVACAction,
     HVACMode,
 )
 from homeassistant.components.fan import SERVICE_SET_PERCENTAGE
@@ -464,10 +466,21 @@ class BestinController:
         target_temperature = (packet[7] & 0x3F) + (packet[7] & 0x40 > 0) * 0.5
         current_temperature = int.from_bytes(packet[8:10], byteorder="big") / 10.0
         hvac_mode = HVACMode.HEAT if is_heating else HVACMode.OFF
+        # 0x10 비트는 켜져 있는 방이 지금 실제로 난방 중인지 알려 줍니다 (Camblin 의 포크).
+        # 꺼진 방은 이 비트와 상관없이 OFF 입니다.
+        # Bit 0x10 says whether a room that is on is heating right now (from
+        # Camblin's fork). A room that is off is OFF whatever this bit says.
+        if not is_heating:
+            hvac_action = HVACAction.OFF
+        elif packet[6] & 0x10:
+            hvac_action = HVACAction.HEATING
+        else:
+            hvac_action = HVACAction.IDLE
 
         from .duty_cycle import PRESET_MODES_DEFAULT
         thermostat_state = {
             ATTR_HVAC_MODE: hvac_mode,
+            ATTR_HVAC_ACTION: hvac_action,
             SERVICE_SET_TEMPERATURE: target_temperature,
             ATTR_CURRENT_TEMPERATURE: current_temperature,
             # 표준 HA preset_mode 지원 (듀티 사이클 없이 setpoint 만 변경).

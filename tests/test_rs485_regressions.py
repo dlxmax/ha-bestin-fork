@@ -95,6 +95,8 @@ _module(
     ATTR_PRESET_MODE="preset_mode",
     ATTR_PRESET_MODES="preset_modes",
     ATTR_CURRENT_TEMPERATURE="current_temperature",
+    ATTR_HVAC_ACTION="hvac_action",
+    HVACAction=types.SimpleNamespace(HEATING="heating", IDLE="idle", OFF="off"),
     HVACMode=types.SimpleNamespace(HEAT="heat", OFF="off"),
 )
 _module("homeassistant.components.light", ColorMode=_ColorMode)
@@ -563,6 +565,25 @@ async def missing_maker():
 
 
 asyncio.run(missing_maker())
+
+# Thermostat heating or idle (status bits from Camblin, https://github.com/Camblin/ha-bestin).
+# Byte 6: 0x01 on, 0x10 heating now. The real dump packet has 0x02 (off).
+def therm_action(byte6):
+    pkt = bytearray.fromhex("02281091750202190109002173008019")
+    pkt[6] = byte6
+    room, state = controller.BestinController.parse_thermostat(None, pkt)
+    return state["hvac_mode"], state["hvac_action"]
+
+check("thermostat off from real packet", therm_action(0x02), ("off", "off"))
+check("thermostat on and heating", therm_action(0x11), ("heat", "heating"))
+check("thermostat on and idle", therm_action(0x01), ("heat", "idle"))
+check("heating bit ignored when off", therm_action(0x12), ("off", "off"))
+
+ent = object.__new__(climate.BestinClimate)
+ent._device_info = types.SimpleNamespace(state={"hvac_mode": "heat"})
+check("no hvac_action on gateways that do not report it", ent.hvac_action, None)
+ent._device_info.state["hvac_action"] = "heating"
+check("hvac_action read from state", ent.hvac_action, "heating")
 
 print()
 print("FAILURES:", failures if failures else "none")

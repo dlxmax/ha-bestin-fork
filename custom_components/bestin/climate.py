@@ -6,6 +6,7 @@ from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN, ClimateEn
 from homeassistant.components.climate.const import (
     ATTR_HVAC_MODE,
     ATTR_CURRENT_TEMPERATURE,
+    ATTR_HVAC_ACTION,
     ATTR_PRESET_MODE,
     SERVICE_SET_TEMPERATURE,
     ClimateEntityFeature,
@@ -242,7 +243,12 @@ class BestinClimate(BestinDevice, RestoreEntity, ClimateEntity):
 
     @property
     def hvac_action(self):
-        """Return the current action."""
+        """Return the current action.
+
+        로컬 RS-485 만 난방 중 / 대기 상태를 알려 줍니다. 다른 게이트웨이는 None.
+        Only local RS-485 reports heating or idle; other gateways give None.
+        """
+        return self._device_info.state.get(ATTR_HVAC_ACTION)
 
     @property
     def extra_state_attributes(self) -> dict:
