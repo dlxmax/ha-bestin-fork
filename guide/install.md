@@ -54,7 +54,7 @@
 - 사진을 참고하여 디밍 세대인지 확인해 보세요.
 - 패킷 데이터를 더 보내 주시면 좋겠어요.
   - [디밍 테스트](/tests/dimming_test.py) 코드로 더 자세히 분석할 수 있어요.
-- **Gateway 2.0 기본 버전**과 결선은 같고, 에너지콘트롤러 EW11 은 baud rate 를 38,400 으로 설정해 주세요! (EW11 IP 접속 -> SERIAL PORT SETTINGS -> Baud Rate)
+- **Gateway 2.0 기본 버전**과 결선은 같고, 에너지콘트롤러 EW11은 baud rate를 38,400으로 설정해 주세요! (EW11 IP 접속 -> SERIAL PORT SETTINGS -> Baud Rate)
 
 ![Gateway 2.0 디밍](/images/gateway2.0_dimming.png)
 

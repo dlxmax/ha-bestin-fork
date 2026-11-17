@@ -1,6 +1,6 @@
 # 프로젝트 소개 / About
 
-**ha-bestin-fork** 는 한국 BESTIN / 현대 IPARK 월패드를 [Home Assistant](https://www.home-assistant.io/) 에 연동하는 커스텀 컴포넌트예요. 이 포크는 같은 단지에서도 동작하지 않던 기존 두 가지 방식을 보완하려고 세 번째 옵션을 추가해요.  
+**ha-bestin-fork**는 한국 BESTIN / 현대 IPARK 월패드를 [Home Assistant](https://www.home-assistant.io/)에 연동하는 커스텀 컴포넌트예요. 이 포크는 같은 단지에서도 동작하지 않던 기존 두 가지 방식을 보완하려고 세 번째 옵션을 추가해요.  
 *ha-bestin-fork is a Home Assistant custom component for the Korean BESTIN / Hyundai IPARK wallpads. This fork adds a third gateway option that fills the gap when the two existing methods don't work in a given complex.*
 
 ## 한 줄 요약 / One-line summary
@@ -13,22 +13,22 @@
 | 방식 / Method | 무엇을 하는가 / What it does | 장점 / Pros | 단점 / Cons |
 |---|---|---|---|
 | **로컬 RS-485 / Local RS-485** | 월패드 후면 라인을 EW11 또는 USB-RS485 어댑터로 직접 연결.<br>*Direct line tap with EW11 or a USB-to-RS-485 adapter.* | 인터넷 / 단지 서버 의존 없음<br>*Zero internet / server dependency* | 하드웨어 필요 · RS-422 구형 월패드는 신호 해석 불가 · 시리얼은 미테스트<br>*Needs hardware; older RS-422 wallpads can't be parsed; serial untested* |
-| **IPARK 스마트홈 클라우드 / IPARK Smart Home cloud** | 현대 클라우드 (`center.hdc-smart.com`) 와 통신 (Smart Home v1 / v2).<br>*Talks to the official cloud (`center.hdc-smart.com`).* | 하드웨어 불필요 · 신축·중형 단지에서 안정적<br>*No hardware; stable on newer complexes* | UUID 등록 절차 복잡 · 일부 구형 단지에서 무반응<br>*UUID registration is fiddly; unresponsive on some older complexes* |
+| **IPARK 스마트홈 클라우드 / IPARK Smart Home cloud** | 현대 클라우드 (`center.hdc-smart.com`)와 통신 (Smart Home v1 / v2).<br>*Talks to the official cloud (`center.hdc-smart.com`).* | 하드웨어 불필요 · 신축·중형 단지에서 안정적<br>*No hardware; stable on newer complexes* | UUID 등록 절차 복잡 · 일부 구형 단지에서 무반응<br>*UUID registration is fiddly; unresponsive on some older complexes* |
 | **iPark 스마트홈 앱 / iPark Smarthome App** | 단지 중앙 서버와 안드로이드 앱과 동일한 방식으로 통신.<br>*Talks to the apartment complex's central server the same way the Android app does.* | 토큰 복사 불필요 · 단지 이름만으로 설정 · 웹사이트 제어가 무반응이던 가정에서도 동작<br>*No token; pick the complex by name; works where the website-controls silently fail* | 단지 중앙 서버가 살아 있어야 함<br>*Requires the complex's central server to be online* |
 
 ## 유지보수 현황 / Maintenance status
 
-원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 의 작업이 v1.1.9 이후로 중단되어, 이 포크가 유지보수를 이어 받았어요. 버전별 변경 내용은 [Releases](https://github.com/dlxmax/ha-bestin-fork/releases) 에서 볼 수 있어요.  
+원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin)의 작업이 v1.1.9 이후로 중단되어, 이 포크가 유지보수를 이어받았어요. 버전별 변경 내용은 [Releases](https://github.com/dlxmax/ha-bestin-fork/releases)에서 볼 수 있어요.  
 *Upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) development stopped after v1.1.9. This fork has taken over maintenance. See [Releases](https://github.com/dlxmax/ha-bestin-fork/releases) for what changed in each version.*
 
 ## 왜 만들었는가 / Why this exists
 
-이 포크 작성자의 집에서는 기존 두 방식이 모두 동작하지 않았어요. 월패드는 RS-422 라인을 사용해 RS-485 어댑터로 신호 해석이 어려웠고, 단지 웹사이트의 제어 명령은 응답 없이 사라졌어요. 그런데 같은 서버에 안드로이드 [iPark 스마트홈 앱](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet) 을 쓰면 잘 동작했어요. 앱을 정적 분석한 결과, 앱은 웹사이트와 같은 URL 을 호출하지만 두 가지 핵심 차이가 있었어요. 정확한 PHP 경로 (`/webapp/data/...`) 와 필수 AJAX 헤더 (`X-Requested-With: XMLHttpRequest`) 예요. 헤더가 없으면 서버는 바로 `result="timeout"` 더미 응답을 돌려보내요. 웹사이트가 무반응이었던 직접적인 원인이에요. 이 새 옵션은 두 차이를 그대로 반영해요.  
+이 포크 작성자의 집에서는 기존 두 방식이 모두 동작하지 않았어요. 월패드는 RS-422 라인을 사용해 RS-485 어댑터로 신호 해석이 어려웠고, 단지 웹사이트의 제어 명령은 응답 없이 사라졌어요. 그런데 같은 서버에 안드로이드 [iPark 스마트홈 앱](https://play.google.com/store/apps/details?id=com.mobiletalk.iparkhomenet)을 쓰면 잘 동작했어요. 앱을 정적 분석한 결과, 앱은 웹사이트와 같은 URL을 호출하지만 두 가지 핵심 차이가 있었어요. 정확한 PHP 경로 (`/webapp/data/...`)와 필수 AJAX 헤더 (`X-Requested-With: XMLHttpRequest`)예요. 헤더가 없으면 서버는 바로 `result="timeout"` 더미 응답을 돌려보내요. 웹사이트가 무반응이었던 직접적인 원인이에요. 이 새 옵션은 두 차이를 그대로 반영해요.  
 *Both existing methods failed in this fork author's home — the wallpad uses RS-422 (older than RS-485) so adapters couldn't parse it cleanly, and the apartment-complex website silently dropped every control command. The Android iPark Smarthome app worked fine on the same server. Static analysis of the APK revealed the app makes near-identical calls to the website but with two critical differences: the correct PHP path (`/webapp/data/...`) and the mandatory `X-Requested-With: XMLHttpRequest` header. Without that header the server short-circuits with a stub `result="timeout"` — the direct cause of the website's silent failures. The new option mirrors both differences faithfully.*
 
 ## 지원 기기 / Supported devices
 
-거실 조명, 각실 조명, 콘센트 (대기전력 자동차단 포함), 난방 (객실 + 추가 비제어 난방 온도 센서; 정확한 의미는 단지마다 상이. 로컬 RS-485 는 난방 중 / 대기 상태도 표시), 가스밸브 (닫기 전용), 환기 (속도 포함), 외출 모드, 도어락 (RS-485 · 클라우드는 스위치, iPark 스마트홈 앱은 상태만), 에너지 모니터링 (전기 / 가스 / 난방 / 온수 / 수도), 엘리베이터 호출 (해당 옵션 한정).  
+거실 조명, 각실 조명, 콘센트 (대기전력 자동차단 포함), 난방 (객실 + 추가 비제어 난방 온도 센서; 정확한 의미는 단지마다 상이. 로컬 RS-485는 난방 중 / 대기 상태도 표시), 가스밸브 (닫기 전용), 환기 (속도 포함), 외출 모드, 도어락 (RS-485 · 클라우드는 스위치, iPark 스마트홈 앱은 상태만), 에너지 모니터링 (전기 / 가스 / 난방 / 온수 / 수도), 엘리베이터 호출 (해당 옵션 한정).  
 *Living-room lights, per-room lights, outlets (with standby cutoff), thermostats (per-room + an extra uncontrollable heat-temperature sensor when the wallpad exposes more 'rooms' than it has thermostats; the exact meaning varies by complex; local RS-485 also shows heating or idle), gas valve (close-only), ventilation (with speeds), away mode, doorlock (a switch on RS-485 and cloud, status only on the iPark Smarthome App), energy monitoring (Electric / Gas / Heat / Hot water / Water), elevator call (where supported).*
 
 ## 다국어 지원 / Localisation
@@ -38,7 +38,7 @@
 
 ## 라이선스 / License
 
-원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) 에는 오픈 소스 라이선스가 없고, 원작자는 "Copyright (c) 2026 lunDreame. All rights reserved." 라고만 밝히고 있어요. 그래서 이 포크에도 라이선스 파일이 없어요.  
+원본 [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin)에는 오픈 소스 라이선스가 없고, 원작자는 "Copyright (c) 2026 lunDreame. All rights reserved."라고만 밝히고 있어요. 그래서 이 포크에도 라이선스 파일이 없어요.  
 *The upstream [`lunDreame/ha-bestin`](https://github.com/lunDreame/ha-bestin) has no open source license; its author states only "Copyright (c) 2026 lunDreame. All rights reserved." This fork therefore has no license file either.*
 
 ## 감사의 말 / Acknowledgments
