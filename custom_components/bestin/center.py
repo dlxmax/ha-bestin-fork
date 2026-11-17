@@ -72,6 +72,50 @@ class CenterAPIv2:
         self.elevator_slots: dict[str, int] = {}
         # 진단용 최근 SSE 메시지 / Recent SSE messages for diagnostics.
         self.elevator_messages: deque[dict] = deque(maxlen=30)
+        # 진단용 최근 서버 요청 (방식, 경로, 상태, 실패 시 응답 앞부분).
+        # 예전에는 실패해도 상태 줄만 로그에 남아서 서버가 왜 거절했는지
+        # 알 수 없었습니다 (이슈 #8).
+        # Recent server requests for diagnostics (method, path, status and,
+        # on failure, the start of the reply). Failures used to log only the
+        # status line, so we couldn't see why the server refused (issue #8).
+        self.request_events: deque[dict] = deque(maxlen=50)
+
+    def _trace_config(self) -> aiohttp.TraceConfig:
+        """요청 기록용 aiohttp 추적 / aiohttp tracing that records requests."""
+        trace = aiohttp.TraceConfig()
+        trace.on_request_end.append(self._on_request_end)
+        trace.on_request_exception.append(self._on_request_exception)
+        return trace
+
+    def _note_request(self, method: str, url, **fields: Any) -> None:
+        # 쿼리는 남기지 않아요 (v1 로그인은 아이디와 비밀번호를 쿼리로 보냄).
+        # No query string: the v1 login sends the username and password in it.
+        self.request_events.append({
+            "time": datetime.now().isoformat(timespec="seconds"),
+            "method": method,
+            "host": url.host,
+            "path": url.path,
+            **fields,
+        })
+
+    async def _on_request_end(self, session, ctx, params) -> None:
+        response = params.response
+        body = None
+        if response.status >= 400:
+            try:
+                # 오류 응답만 읽어요. aiohttp 가 본문을 보관하므로 호출한 쪽도
+                # 그대로 읽을 수 있어요. Only error replies are read; aiohttp
+                # keeps the body, so the caller can still read it.
+                body = (await response.text(errors="replace"))[:200]
+            except Exception as ex:  # noqa: BLE001
+                body = f"<unreadable: {type(ex).__name__}>"
+        self._note_request(params.method, params.url, status=response.status, body=body)
+
+    async def _on_request_exception(self, session, ctx, params) -> None:
+        self._note_request(
+            params.method, params.url,
+            error=f"{type(params.exception).__name__}: {params.exception}"[:200],
+        )
 
     async def _v2_device_status(self, args=None):
         """Update device status for v2 API."""
@@ -124,6 +168,11 @@ class CenterAPIv2:
         headers = {
             "Content-Type": "application/json",
             "Authorization": self.entry.data[CONF_UUID],
+            # 다른 v2 요청처럼 access-token 도 보내요. 없으면 401 이 나는
+            # 서버가 있어요 (이슈 #8, yhw7 님이 찾음). Send access-token like
+            # every other v2 request; some servers answer 401 without it
+            # (issue #8, found by yhw7).
+            "access-token": self.entry.data[CONF_SESSION]["access-token"],
             "User-Agent": "Mozilla/5.0"
         }
         data = {
@@ -148,8 +197,15 @@ class CenterAPIv2:
     async def fetch_elevator_status(self):
         """Fetch and process elevator status updates."""
         url = f"{self.entry.data[CONF_SESSION][CONF_URL]}/v2/admin/elevators/sse"
+        # 예전에는 헤더 없이 요청했어요 (이슈 #8). Used to send no headers (issue #8).
+        headers = {
+            "Authorization": self.entry.data[CONF_UUID],
+            "access-token": self.entry.data[CONF_SESSION]["access-token"],
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "text/event-stream",
+        }
         try:
-            async with self.session.get(url) as response:
+            async with self.session.get(url, headers=headers) as response:
                 if response.status != 200:
                     LOGGER.error(f"Failed to fetch elevator status: {response.status}")
                     return
@@ -248,6 +304,7 @@ class CenterAPIv2:
             "elevator_slots": dict(self.elevator_slots),
             "elevator_cars": dict(self.elevator_cars),
             "elevator_messages": list(self.elevator_messages),
+            "events": list(self.request_events),
             "devices": len(getattr(self, "devices", {}) or {}),
         }
 
@@ -396,7 +453,9 @@ class BestinCenterAPI(CenterAPIv2):
         self.add_device_callback = add_device_callback
 
         connector = aiohttp.TCPConnector()
-        self.session = aiohttp.ClientSession(connector=connector)
+        self.session = aiohttp.ClientSession(
+            connector=connector, trace_configs=[self._trace_config()]
+        )
         
         self.tasks: list[asyncio.Task] = []
         self.devices: dict[str, DeviceProfile] = {}
