@@ -46,6 +46,9 @@ from .const import (
     PLATFORM_SIGNAL_MAP,
     DeviceProfile,
     DeviceInfo,
+    V2_API_KEY,
+    V2_LOGIN_BODY,
+    V2_LOGIN_URL,
 )
 
 
@@ -136,15 +139,20 @@ class CenterAPIv2:
     
     async def _v2_refresh_session(self, args=None):
         """Refresh session for v2 API."""
-        url = "https://center.hdc-smart.com/v3/auth/login"
+        url = V2_LOGIN_URL
+        # 공식 앱처럼 X-API-KEY 와 본문 "V2" 를 보내요 (#11, #12).
+        # Send X-API-KEY and the "V2" body like the official app (#11, #12).
         headers = {
             "Content-Type": "application/json",
             "Authorization": self.entry.data[CONF_UUID],
+            "X-API-KEY": V2_API_KEY,
             "User-Agent": "Mozilla/5.0"
         }
 
         try:
-            async with self.session.post(url=url, headers=headers, timeout=5) as response:
+            async with self.session.post(
+                url=url, headers=headers, data=V2_LOGIN_BODY, timeout=5
+            ) as response:
                 resp = await response.json()
 
                 if response.status != 200:

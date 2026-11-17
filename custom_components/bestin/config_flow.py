@@ -47,6 +47,9 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_MAX_SEND_RETRY,
     DEFAULT_PACKET_VIEWER,
+    V2_API_KEY,
+    V2_LOGIN_BODY,
+    V2_LOGIN_URL,
 )
 from .iparkapp import fetch_directory
 from .report import (
@@ -222,15 +225,20 @@ class ConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def _v2_server_login(self, user_input, session) -> Any:
         """Login to the I'Park Smart Home server (v2) and retrieve session cookies."""
-        url = "https://center.hdc-smart.com/v3/auth/login"
+        url = V2_LOGIN_URL
+        # 공식 앱처럼 X-API-KEY 와 본문 "V2" 를 보내요 (#11, #12).
+        # Send X-API-KEY and the "V2" body like the official app (#11, #12).
         headers = {
             "Content-Type": "application/json",
             "Authorization": user_input[CONF_UUID],
+            "X-API-KEY": V2_API_KEY,
             "User-Agent": "mozilla/5.0 (windows nt 10.0; win64; x64) applewebkit/537.36 (khtml, like gecko) chrome/78.0.3904.70 safari/537.36"
         }
 
         try:
-            async with session.post(url=url, headers=headers, timeout=5) as response:
+            async with session.post(
+                url=url, headers=headers, data=V2_LOGIN_BODY, timeout=5
+            ) as response:
                 resp = await response.json()
         
                 if response.status == 200:

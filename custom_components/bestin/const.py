@@ -34,6 +34,21 @@ DEFAULT_SCAN_INTERVAL = 30
 SMART_HOME_1 = "Smart Home 1.0"
 SMART_HOME_2 = "Smart Home 2.0"
 
+# 공식 앱(com.mobiletalk.valley 1.5.4)과 같은 방식으로 로그인해요. 2026-11-17 부터
+# 로그인은 200 인데 단지 서버가 그 토큰을 401 로 거절해요. 앱은 X-API-KEY 와 본문
+# "V2" 를 보내는데, 예전 로그인은 둘 다 보내지 않았어요 (#11, #12).
+# Log in the way the official app (com.mobiletalk.valley 1.5.4) does. Since
+# 2026-11-17 the login returns 200 but the complex server refuses its token
+# with 401. The app sends X-API-KEY and the body "V2"; our old login sent
+# neither (#11, #12).
+V2_LOGIN_URL = "https://center.hdc-smart.com/v3/auth/login"
+V2_LOGIN_BODY = "V2"
+V2_API_KEY = (
+    "ZXlKaGJHY2lPaUpJVXpJMU5pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SnpaV055WlhRaU9pSXhNak0w"
+    "TlRZM09Ea3dJaXdpYm1GdFpTSTZJbk50WVhKMGFHOXRaU0o5Ljk5YjBNYWtXUkNaSzhhVExkOW1X"
+    "OFlXanR5VnNpd2k5NmNlWjNkYzZzWFk"
+)
+
 SPEED_INT_LOW = 1
 SPEED_INT_MEDIUM = 2
 SPEED_INT_HIGH = 3
