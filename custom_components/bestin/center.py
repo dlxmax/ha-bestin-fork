@@ -57,6 +57,8 @@ class CenterAPIv2:
     ) -> None:
         """Initialize the CenterAPIv2."""
         self.elevator_arrived = False
+        self.elevator_sse_warned = False
+        self.elevator_sse_refused = False
         self.register_elevator: str | None = entry.data.get(CONF_IP_ADDRESS)
         self.elevator_number: int = entry.data.get("elevator_number", 1)
 
@@ -130,6 +132,7 @@ class CenterAPIv2:
         if self.register_elevator:
             for i in range(1, self.elevator_number + 1):
                 self._elevator_registration(str(i))
+            self.set_device("elevator", 1, "up", False)
     
     async def _v2_refresh_session(self, args=None):
         """Refresh session for v2 API."""
@@ -162,37 +165,57 @@ class CenterAPIv2:
         except Exception as ex:
             LOGGER.error(f"Exception during session refresh: {type(ex).__name__}: {ex}")
 
-    async def elevator_call_request(self):
-        """Send elevator call request."""
-        url = f"{self.entry.data[CONF_SESSION][CONF_URL]}/v2/admin/elevators/home/apply"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": self.entry.data[CONF_UUID],
-            # 다른 v2 요청처럼 access-token 도 보내요. 없으면 401 이 나는
-            # 서버가 있어요 (이슈 #8, yhw7 님이 찾음). Send access-token like
-            # every other v2 request; some servers answer 401 without it
-            # (issue #8, found by yhw7).
-            "access-token": self.entry.data[CONF_SESSION]["access-token"],
-            "User-Agent": "Mozilla/5.0"
-        }
-        data = {
-            "address": self.entry.data[CONF_IP_ADDRESS],
-            "direction": "down"
-        }
+    async def elevator_call_request(self, direction: str = "down"):
+        """Send elevator call request ("down" or "up").
 
-        try:
-            async with self.session.post(url=url, headers=headers, json=data) as response:
-                response.raise_for_status()
-                resp = await response.json(content_type="text/plain")
-                result_status = self.result_after_request(resp)
+        공식 앱(아이파크 스마트홈2.0, com.mobiletalk.valley 1.5.4)처럼
+        /v2/api/elevator/down 을 access-token 만으로 불러요. 예전에 쓰던
+        /v2/admin/elevators/home/apply 는 2026-11-13 무렵부터 hdc-smart.com
+        단지 서버에서 401 이 나요 (이슈 #8, #9, #10). 앱 경로가 안 되는
+        서버를 위해 예전 경로를 뒤에 시도해요.
+        Call /v2/api/elevator/down with only access-token, as the official
+        app does. The old /v2/admin/elevators/home/apply answers 401 on
+        hdc-smart.com complex servers since about 2026-11-13 (issues #8, #9,
+        #10). The old path is still tried after it for servers where the
+        app path fails.
+        """
+        base = self.entry.data[CONF_SESSION][CONF_URL]
+        token = self.entry.data[CONF_SESSION]["access-token"]
+        app_call = (
+            f"{base}/v2/api/elevator/{direction}",
+            {"Content-Type": "application/json", "access-token": token, "User-Agent": "Mozilla/5.0"},
+            {"data": direction},
+        )
+        admin_call = (
+            f"{base}/v2/admin/elevators/home/apply",
+            {
+                "Content-Type": "application/json",
+                "Authorization": self.entry.data[CONF_UUID],
+                "access-token": token,
+                "User-Agent": "Mozilla/5.0",
+            },
+            {"json": {"address": self.entry.data.get(CONF_IP_ADDRESS), "direction": direction}},
+        )
 
-                if response.status == 200 and result_status == "ok":
-                    LOGGER.info(f"Just a central server elevator request successful")
-                    self.hass.create_task(self.fetch_elevator_status())
-                else:
-                    LOGGER.error(f"Only central server elevator request failed: {resp}")
-        except Exception as ex:
-            LOGGER.error(f"Error requesting elevator command: {ex}")
+        errors = []
+        for url, headers, body in (app_call, admin_call):
+            try:
+                async with self.session.post(url=url, headers=headers, **body) as response:
+                    if response.status != 200:
+                        errors.append(f"{url.removeprefix(base)} {response.status}")
+                        continue
+                    resp = await response.json(content_type=None)
+                    if self.result_after_request(resp) == "ok":
+                        LOGGER.info(f"Elevator call successful via {url.removeprefix(base)}")
+                        self.hass.create_task(self.fetch_elevator_status())
+                        return
+                    # 거절되면 다음 경로를 시도해요. 예전 경로만 받는 서버가
+                    # 있을 수 있어요. If refused, try the next path; some
+                    # servers may accept only the old one.
+                    errors.append(f"{url.removeprefix(base)} refused: {resp}")
+            except Exception as ex:
+                errors.append(f"{url.removeprefix(base)} {type(ex).__name__}: {ex}")
+        LOGGER.error(f"Error requesting elevator command: {'; '.join(errors)}")
 
     async def fetch_elevator_status(self):
         """Fetch and process elevator status updates."""
@@ -206,8 +229,32 @@ class CenterAPIv2:
         }
         try:
             async with self.session.get(url, headers=headers) as response:
+                if response.status == 200 and self.elevator_sse_refused:
+                    # 다시 받아 주면 센서를 되살려요 (일시적인 거부일 수 있어요).
+                    # Accepted again: bring the sensors back (the refusal may
+                    # have been temporary).
+                    self.elevator_sse_refused = False
+                    self._refresh_elevator_sensors()
                 if response.status != 200:
-                    LOGGER.error(f"Failed to fetch elevator status: {response.status}")
+                    # 공식 앱에는 층수 표시가 없고 이 관리자용 스트림만 층수를
+                    # 줘요. hdc-smart.com 단지 서버는 여기에 401 을 줘요. 호출은
+                    # 그대로 되고 층수·방향 센서만 비어 있어요. 한 번만 알려요.
+                    # The official app shows no floor; only this admin stream
+                    # has it, and hdc-smart.com servers answer it with 401. The
+                    # call still works; only floor/direction stay empty. Warn once.
+                    if not self.elevator_sse_warned:
+                        self.elevator_sse_warned = True
+                        LOGGER.warning(
+                            f"Elevator floor updates unavailable on this server "
+                            f"({response.status}); the call itself still works"
+                        )
+                    # 층수·방향 센서를 '사용 불가' 로 표시해요. 계속 '-' 로
+                    # 남아 있으면 고장처럼 보여요.
+                    # Show floor/direction as unavailable; a '-' that never
+                    # changes looks like a fault.
+                    if not self.elevator_sse_refused:
+                        self.elevator_sse_refused = True
+                        self._refresh_elevator_sensors()
                     return
                 
                 async for line in response.content:
@@ -223,6 +270,14 @@ class CenterAPIv2:
                         break
         except Exception as ex:
             LOGGER.error(f"Fetch elevator status error occurred: {ex}")
+
+    def _refresh_elevator_sensors(self) -> None:
+        """층수·방향 센서 상태를 다시 알려요 / Re-publish floor/direction sensors."""
+        for dev_id, dev in self.devices.items():
+            if dev_id.startswith(f"{BRAND_PREFIX}_elevator_1_") and (
+                "_floor_" in dev_id or "_direction_" in dev_id
+            ):
+                dev.update_callbacks()
 
     def _note_elevator_message(self, data: dict) -> None:
         """진단용으로 SSE 메시지를 남깁니다 / Keep an SSE message for diagnostics.
@@ -546,7 +601,9 @@ class BestinCenterAPI(CenterAPIv2):
                 await self.request_home_device(device_type, room_id, unit_id, value)
         else:
             if device_type == "elevator":
-                await self.elevator_call_request()
+                await self.elevator_call_request(
+                    "up" if len(parts) > 3 and parts[3] == "up" else "down"
+                )
             else:
                 unit_id = (
                     f"{sub_type}{room_id if pos_id is None else pos_id}"

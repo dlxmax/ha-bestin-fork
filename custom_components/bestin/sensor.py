@@ -254,6 +254,16 @@ class BestinSensor(BestinDevice, SensorEntity):
         self._attr_icon = DEVICE_ICON.get(self._key)
 
     @property
+    def available(self) -> bool:
+        """층수·방향 센서는 서버가 상태 스트림을 거부하면 사용 불가예요 (#8).
+        Elevator floor/direction are unavailable when the server refuses the
+        status stream (#8)."""
+        if self._device_info.device_type in ("elevator:floor", "elevator:direction") \
+                and getattr(self.hub.api, "elevator_sse_refused", False):
+            return False
+        return super().available
+
+    @property
     def _no_reading(self) -> bool:
         """값이 없는 상태인가 / Is the meter publishing nothing right now?"""
         return self._device_info.state is None

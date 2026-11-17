@@ -35,6 +35,12 @@ class _Permissive:
     def __hash__(self):
         return 0
 
+    # hub.py uses "A | B" type hints; let a stub sit on either side.
+    def __or__(self, other):
+        return self
+
+    __ror__ = __or__
+
     def __eq__(self, other):
         return isinstance(other, _Permissive)
 

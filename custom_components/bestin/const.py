@@ -62,6 +62,7 @@ MAIN_DEVICES: list[str] = [
     "gas",
     "doorlock",
     "elevator",
+    "elevator:up",
     "mode",
 ]
 
@@ -90,6 +91,7 @@ DEVICE_PLATFORM_MAP = {
     "energy": Platform.SENSOR.value,
     "doorlock": Platform.SWITCH.value,
     "elevator": Platform.SWITCH.value,
+    "elevator:up": Platform.SWITCH.value,
     "elevator:direction": Platform.SENSOR.value,
     "elevator:floor": Platform.SENSOR.value,
     # 외출(away) 모드 — iparkapp 게이트웨이에서만 노출됨.  서버는 "normal" /

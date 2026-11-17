@@ -21,6 +21,7 @@ DEVICE_ICON = {
     "outlet:standbycut": "mdi:power-sleep",
     "doorlock": "mdi:door-closed",
     "elevator": "mdi:elevator-down",
+    "elevator:up": "mdi:elevator-up",
     "electric": "mdi:power-socket",
     "electric:standbycut": "mdi:power-sleep",
     "gas": "mdi:valve",
@@ -67,6 +68,18 @@ class BestinSwitch(BestinDevice, SwitchEntity):
         super().__init__(device, hub)
         self._attr_icon = DEVICE_ICON.get(self._device_info.device_type)
         self._version_exists = getattr(hub.api, CONF_VERSION, False)
+        # 공식 앱처럼 하향·상향 호출을 나눠요 (#8). 예전 스위치는 하향 호출이에요.
+        # 엘리베이터가 둘 이상이면 이름에 번호를 붙여서 구분해요 (#2).
+        # Down and up calls, as in the official app (#8). The original switch
+        # has always been the down call. With more than one elevator the
+        # name carries its number so the switches can be told apart (#2).
+        if self._device_info.device_type == "elevator":
+            self._attr_name = "Elevator down"
+            if getattr(hub.api, "elevator_number", 1) > 1:
+                car = self._device_info.device_id.rsplit("_", 1)[-1]
+                self._attr_name = f"Elevator down {car}"
+        elif self._device_info.device_type == "elevator:up":
+            self._attr_name = "Elevator up"
 
     @property
     def is_on(self) -> bool:
