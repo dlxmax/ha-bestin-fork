@@ -49,6 +49,16 @@ V2_API_KEY = (
     "OFlXanR5VnNpd2k5NmNlWjNkYzZzWFk"
 )
 
+# 단지 서버(ksc.hdc-smart.com)의 nginx 는 짧은 "Mozilla/5.0" UA 로 온 /v2/api
+# 요청을 401 로 막아요. 공식 앱 WebView 처럼 실제 브라우저 UA 를 보내요 (#11).
+# The complex server's nginx (ksc.hdc-smart.com) answers 401 to /v2/api
+# requests with the short "Mozilla/5.0" UA. Send a real browser UA like the
+# official app's WebView (#11).
+V2_USER_AGENT = (
+    "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36"
+)
+
 SPEED_INT_LOW = 1
 SPEED_INT_MEDIUM = 2
 SPEED_INT_HIGH = 3

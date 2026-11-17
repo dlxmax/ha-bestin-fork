@@ -75,6 +75,7 @@ for _name in ("bst.const", "bst.controller", "bst.until"):
 sys.modules["bst.const"].LOGGER = logging.getLogger("test")
 sys.modules["bst.const"].CONF_SESSION = "session"
 sys.modules["bst.const"].BRAND_PREFIX = "bestin"
+sys.modules["bst.const"].V2_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36"
 
 
 def _load(modname, filename):

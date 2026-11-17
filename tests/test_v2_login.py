@@ -10,6 +10,8 @@ and the body "V2"; ours sent neither.
   2. Content-Type stays application/json, as in the app.
   3. const.py carries the app's key and body unchanged.
   4. The refreshed session is stored in the config entry.
+  5. /v2/api requests carry a real browser User-Agent. ksc.hdc-smart.com's
+     nginx answers 401 to the short "Mozilla/5.0" (#11, found by the reporter).
 
 Uses the real aiohttp against a local server standing in for
 center.hdc-smart.com. Run with: uv run --with aiohttp python tests/test_v2_login.py
@@ -131,9 +133,22 @@ async def login_handler(request):
     return web.json_response({"access-token": token, "url": "https://x.example"})
 
 
+api_calls: list[tuple[str, str]] = []
+
+
+async def api_handler(request):
+    ua = request.headers.get("User-Agent", "")
+    api_calls.append((request.method, ua))
+    # ksc 처럼 짧은 UA 는 nginx 401 로 막아요. Like ksc: short UA gets nginx 401.
+    if ua == "Mozilla/5.0" or "AppleWebKit" not in ua:
+        return web.Response(status=401, text="<html>401 Authorization Required</html>")
+    return web.json_response({"result": "ok", "features": []})
+
+
 async def main():
     app = web.Application()
     app.router.add_post("/v3/auth/login", login_handler)
+    app.router.add_route("*", "/v2/api/{tail:.*}", api_handler)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "127.0.0.1", 0)
@@ -177,6 +192,25 @@ async def main():
     check("refresh body", sent["body"], "V2")
     check("refresh Content-Type", sent["headers"].get("Content-Type"), "application/json")
     check("refreshed token stored", stored.get("session", {}).get("access-token"), "GOOD")
+
+    # --- /v2/api User-Agent (#11) ------------------------------------------
+    check("UA is a full browser UA", "AppleWebKit" in const.V2_USER_AGENT, True)
+    src = open(f"{REPO}/center.py", encoding="utf-8").read()
+    check("no short UA left in center.py", '"Mozilla/5.0"' in src, False)
+    api.entry.data = {**api.entry.data, "session": {"access-token": "GOOD",
+                                            "url": f"http://127.0.0.1:{port}"}}
+    api.result_after_request = lambda resp: resp.get("result")
+    api.features_list = []
+
+    async def _noop(*a, **kw):
+        return None
+
+    api.process_features = _noop
+    api.fetch_feature_status = _noop
+    await api.fetch_feature_list()
+    await api.request_feature_command("light", 1, "light1", "on")
+    check("feature list sent the browser UA", api_calls[0], ("GET", const.V2_USER_AGENT))
+    check("feature command sent the browser UA", api_calls[1], ("PUT", const.V2_USER_AGENT))
     await api.session.close()
 
     # --- setup login (config_flow.py) -------------------------------------

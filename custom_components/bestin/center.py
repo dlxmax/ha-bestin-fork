@@ -49,6 +49,7 @@ from .const import (
     V2_API_KEY,
     V2_LOGIN_BODY,
     V2_LOGIN_URL,
+    V2_USER_AGENT,
 )
 
 
@@ -146,7 +147,7 @@ class CenterAPIv2:
             "Content-Type": "application/json",
             "Authorization": self.entry.data[CONF_UUID],
             "X-API-KEY": V2_API_KEY,
-            "User-Agent": "Mozilla/5.0"
+            "User-Agent": V2_USER_AGENT
         }
 
         try:
@@ -191,7 +192,7 @@ class CenterAPIv2:
         token = self.entry.data[CONF_SESSION]["access-token"]
         app_call = (
             f"{base}/v2/api/elevator/{direction}",
-            {"Content-Type": "application/json", "access-token": token, "User-Agent": "Mozilla/5.0"},
+            {"Content-Type": "application/json", "access-token": token, "User-Agent": V2_USER_AGENT},
             {"data": direction},
         )
         admin_call = (
@@ -200,7 +201,7 @@ class CenterAPIv2:
                 "Content-Type": "application/json",
                 "Authorization": self.entry.data[CONF_UUID],
                 "access-token": token,
-                "User-Agent": "Mozilla/5.0",
+                "User-Agent": V2_USER_AGENT,
             },
             {"json": {"address": self.entry.data.get(CONF_IP_ADDRESS), "direction": direction}},
         )
@@ -232,7 +233,7 @@ class CenterAPIv2:
         headers = {
             "Authorization": self.entry.data[CONF_UUID],
             "access-token": self.entry.data[CONF_SESSION]["access-token"],
-            "User-Agent": "Mozilla/5.0",
+            "User-Agent": V2_USER_AGENT,
             "Accept": "text/event-stream",
         }
         try:
@@ -378,7 +379,7 @@ class CenterAPIv2:
         url = f"{self.entry.data[CONF_SESSION][CONF_URL]}/v2/api/features/{device_type}/{room_id}/apply"
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0",
+            "User-Agent": V2_USER_AGENT,
             "access-token": self.entry.data[CONF_SESSION]["access-token"],
         }
         data = {"unit": unit, "state": value}
@@ -407,7 +408,7 @@ class CenterAPIv2:
         url = f"{self.entry.data[CONF_SESSION][CONF_URL]}/v2/api/features/{feature_name}/{room_id}/apply"
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0",
+            "User-Agent": V2_USER_AGENT,
             "access-token": self.entry.data[CONF_SESSION]["access-token"],
         }
         
@@ -474,7 +475,7 @@ class CenterAPIv2:
         url = f"{self.entry.data[CONF_SESSION][CONF_URL]}/v2/api/features/apply"
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0",
+            "User-Agent": V2_USER_AGENT,
             "access-token": self.entry.data[CONF_SESSION]["access-token"],
         }
         
