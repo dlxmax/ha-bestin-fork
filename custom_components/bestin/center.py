@@ -65,6 +65,12 @@ class CenterAPIv2:
         self.elevator_sse_refused = False
         self.register_elevator: str | None = entry.data.get(CONF_IP_ADDRESS)
         self.elevator_number: int = entry.data.get("elevator_number", 1)
+        # 방별 환기 unit 이름 (상태 조회 응답 그대로). 공식 앱은 이 이름을
+        # 그대로 돌려보냅니다. 아직 모르면 "ventil" (앱의 기본값과 같음).
+        # Ventilation unit name per room, as the status reply gives it. The
+        # official app sends this name back unchanged; until it is known we
+        # use "ventil", which is also the app's own fallback.
+        self.ventil_units: dict[int, str] = {}
 
         self.features_list: list[dict] = []
         # 엘리베이터 차량별 마지막 move_info (Serial 기준) 와 화면 번호.
@@ -385,7 +391,17 @@ class CenterAPIv2:
         data = {"unit": unit, "state": value}
         
         if device_type == "ventil":
-            data.update({"unit": unit[:-1], "mode": "", "unit_mode": ""})
+            # 공식 앱(아이파크 스마트홈 2.0 1.5.4)과 같은 요청: 켜기/끄기와
+            # 풍량 모두 {"unit": 상태의 unit 이름, "state": on/off/low/mid/high,
+            # "mode": ""}. 예전에는 풍량을 앱에 없는 unit "set_percentage" 로
+            # 보내서 풍량이 바뀌지 않았습니다 (#13).
+            # Same request as the official app (iPark Smart Home 2.0 1.5.4):
+            # on/off and speed are both {"unit": the status unit name, "state":
+            # on/off/low/mid/high, "mode": ""}. Speed used to go out as unit
+            # "set_percentage", which the app never sends, and the speed did
+            # not change (#13).
+            unit = self.ventil_units.get(room_id, "ventil")
+            data = {"unit": unit, "state": value, "mode": ""}
         if device_type == "smartlight":
             data.update({"unit": unit[-1], **value})
 
@@ -440,6 +456,15 @@ class CenterAPIv2:
                         else:
                             unit_last = unit["unit"][-1]
                             unit_state = unit["state"]
+                            if feature_name == "ventil":
+                                self.ventil_units[room_id] = unit["unit"]
+                                # 공식 앱: 막 켠 뒤의 "on" 은 미풍, "unknown" 은
+                                # 꺼짐으로 보입니다. The official app shows the
+                                # "on" reported right after power-on as low and
+                                # "unknown" as off.
+                                unit_state = {"on": SPEED_STR_LOW, "unknown": "off"}.get(
+                                    unit_state, unit_state
+                                )
 
                         if feature_name in ["light", "smartlight", "livinglight", "gas", "doorlock"]:
                             self._parse_common_status(feature_name, room_id, unit_last, unit_state)

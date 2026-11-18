@@ -23,6 +23,7 @@ from homeassistant.util.percentage import (
 
 from .const import (
     CONF_VERSION,
+    SMART_HOME_2,
     SPEED_STR_LOW,
     NEW_FAN,
     PRESET_NV,
@@ -79,6 +80,7 @@ class BestinFan(BestinDevice, FanEntity):
         # Keep the isinstance guard as cheap insurance against future
         # regressions.
         self._version_exists = getattr(hub.api, CONF_VERSION, False)
+        self._is_v2 = self._version_exists == SMART_HOME_2
 
         self._supported_features = (
             FanEntityFeature.TURN_ON | FanEntityFeature.TURN_OFF
@@ -137,7 +139,9 @@ class BestinFan(BestinDevice, FanEntity):
             await self.enqueue_command(STATE_OFF if self._version_exists else False)
         else:
             percentage = percentage_to_ordered_list_item(self._speed_list, percentage)
-            if percentage == SPEED_STR_LOW and self.is_on is False:
+            # Smart Home 2.0 은 공식 앱처럼 꺼진 상태에서도 풍량을 그대로 보냅니다.
+            # On Smart Home 2.0 the official app sends the speed even when off.
+            if percentage == SPEED_STR_LOW and self.is_on is False and not self._is_v2:
                 await self.enqueue_command(STATE_ON)
             else:
                 await self.enqueue_command(set_percentage=percentage)
@@ -164,6 +168,13 @@ class BestinFan(BestinDevice, FanEntity):
         **kwargs: Any,
     ) -> None:
         """Turn on fan."""
+        # Smart Home 2.0 한정: Matter (SmartThings 등) 은 turn_on 에 percentage
+        # 를 같이 보냅니다. 버리면 항상 미풍으로 켜집니다 (#13).
+        # Smart Home 2.0 only: Matter bridges (SmartThings etc.) send turn_on
+        # with a percentage. Dropping it always started the fan at low (#13).
+        if self._is_v2 and percentage is not None and self._speed_list:
+            await self.async_set_percentage(percentage)
+            return
         await self.enqueue_command(STATE_ON if self._version_exists else True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
