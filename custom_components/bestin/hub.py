@@ -34,6 +34,11 @@ from .iparkapp_const import CONF_IPARKAPP_SITE, SMART_HOME_APP
 from .until import check_ip_or_serial
 
 
+# A dead peer never ACKs, so wait_closed() can take very long or never return; if the
+# socket does not close within this many seconds it is dropped with abort().
+CLOSE_TIMEOUT = 2.0
+
+
 class ConnectionManager:
     """Handles hub connections."""
     
@@ -90,9 +95,9 @@ class ConnectionManager:
         """
         try:
             if self.is_serial:
-                await self._connect_serial()
+                await self._connect_serial(timeout)
             elif self.is_socket:
-                await self._connect_socket()
+                await self._connect_socket(timeout)
         except Exception as e:  # noqa: BLE001
             LOGGER.error(f"Connection failed: {e!r}")
             await self._close_writer()
@@ -100,18 +105,47 @@ class ConnectionManager:
         LOGGER.info("Connection established successfully.")
         return True
 
-    async def _connect_serial(self) -> None:
+    async def _connect_serial(self, timeout: float = 5) -> None:
         """Establish a serial connection."""
-        self.reader, self.writer = await serial_asyncio.open_serial_connection(
-            url=self.conn_str, baudrate=9600
+        # Same bound as the socket path, so a stuck port cannot hang the connect.
+        self.reader, self.writer = await asyncio.wait_for(
+            serial_asyncio.open_serial_connection(url=self.conn_str, baudrate=9600),
+            timeout=timeout,
         )
         LOGGER.info(f"Serial connection established on {self.conn_str}")
 
-    async def _connect_socket(self) -> None:
+    async def _connect_socket(self, timeout: float = 5) -> None:
         """Establish a socket connection."""
         host, port = self.conn_str.split(":")
-        self.reader, self.writer = await asyncio.open_connection(host, int(port))
+        # Do not wait for the OS connect timeout (minutes) on an address that never answers.
+        self.reader, self.writer = await asyncio.wait_for(
+            asyncio.open_connection(host, int(port)), timeout=timeout
+        )
+        self._enable_keepalive()
         LOGGER.info(f"Socket connection established to {host}:{port}")
+
+    def _enable_keepalive(self) -> None:
+        """TCP keepalive: notice a vanished adapter within about a minute.
+
+        When the adapter loses power the TCP session stays half-open. The 30 s read
+        timeout catches that while data flows; keepalive catches it while only
+        writing, and makes the kernel give up on a dead peer sooner.
+        """
+        sock = self.writer.get_extra_info("socket") if self.writer else None
+        if sock is None:
+            return
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            for name, value in (
+                ("TCP_KEEPIDLE", 20),
+                ("TCP_KEEPINTVL", 10),
+                ("TCP_KEEPCNT", 3),
+                ("TCP_USER_TIMEOUT", 45000),
+            ):
+                if hasattr(socket, name):
+                    sock.setsockopt(socket.IPPROTO_TCP, getattr(socket, name), value)
+        except OSError as e:
+            LOGGER.debug(f"Could not set TCP keepalive: {e}")
 
     def is_connected(self) -> bool:
         """Check if the connection is active."""
@@ -134,9 +168,12 @@ class ConnectionManager:
         if writer is not None:
             try:
                 writer.close()
-                await writer.wait_closed()
+                await asyncio.wait_for(writer.wait_closed(), timeout=CLOSE_TIMEOUT)
             except Exception:  # noqa: BLE001
-                pass
+                try:
+                    writer.transport.abort()
+                except Exception:  # noqa: BLE001
+                    pass
 
     async def reconnect(self) -> bool:
         """Attempt to reconnect with exponential backoff.
