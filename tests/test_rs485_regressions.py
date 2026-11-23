@@ -615,6 +615,19 @@ check("no hvac_action on gateways that do not report it", ent.hvac_action, None)
 ent._device_info.state["hvac_action"] = "heating"
 check("hvac_action read from state", ent.hvac_action, "heating")
 
+# The diagnostics snapshot reads the queue length (it used asyncio.Queue.qsize(); the queue is now a deque).
+ctrl_q = object.__new__(controller.BestinController)
+ctrl_q.queue = controller.AsyncQueue()
+ctrl_q.gateway_type = "General"
+ctrl_q.room_to_command = {}
+ctrl_q.connection = types.SimpleNamespace(is_connected=lambda: True, reconnect_attempts=0)
+ctrl_q.packets_total = 0
+ctrl_q.packet_types = {}
+ctrl_q.recent_packets = []
+check("diagnostics snapshot reports an empty queue", ctrl_q.diagnostics_snapshot()["queue_size"], 0)
+asyncio.run(ctrl_q.queue.put({"n": 1}))
+check("diagnostics snapshot counts a queued command", ctrl_q.diagnostics_snapshot()["queue_size"], 1)
+
 # Cold water total is a 4-byte BCD field like the other meters (#3). Packets
 # from #3's diagnostics and from upstream's capture used above.
 ctrl_e = object.__new__(controller.BestinController)

@@ -812,7 +812,7 @@ class BestinController:
             "room_to_command": self.room_to_command,
             "connected": self.is_alive,
             "reconnect_attempts": getattr(self.connection, "reconnect_attempts", None),
-            "queue_size": self.queue.queue.qsize(),
+            "queue_size": len(self.queue.queue),
             "packets_total": self.packets_total,
             "packet_types": dict(self.packet_types),
             "recent_packets": list(self.recent_packets),
